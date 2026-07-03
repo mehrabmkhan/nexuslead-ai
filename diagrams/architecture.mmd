@@ -1,0 +1,8 @@
+flowchart LR
+    S[Synthetic demand signals] --> Q[AI qualification rules]
+    Q --> M[Client matching engine]
+    M --> C[SQLite CRM pipeline]
+    C --> D[BPO agent dashboard]
+    C --> E[CSV exports and daily report]
+    R[Simulated reviews] --> D
+    D --> H[Human-approved outreach]

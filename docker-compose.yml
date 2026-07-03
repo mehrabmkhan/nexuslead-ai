@@ -1,0 +1,10 @@
+services:
+  nexuslead-ai:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - NEXUSLEAD_DB=/app/data/nexuslead_demo.db
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports

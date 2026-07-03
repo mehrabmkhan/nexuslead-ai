@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NexusLead AI</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, sans-serif; }
+    body { margin: 0; background: #f6f7f9; color: #1f2933; }
+    header { background: #18324a; color: white; padding: 24px 32px; }
+    main { padding: 24px 32px; }
+    h1, h2 { margin: 0 0 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+    .panel { background: white; border: 1px solid #d9e0e7; border-radius: 8px; padding: 16px; }
+    .metric { font-size: 28px; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border-bottom: 1px solid #e4e8ee; padding: 10px; text-align: left; vertical-align: top; }
+    th { background: #eef3f7; }
+    form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    input, select, button, a.button { border: 1px solid #bcc7d2; border-radius: 6px; padding: 8px 10px; background: white; color: #1f2933; text-decoration: none; }
+    button, a.button { background: #1f6feb; color: white; border-color: #1f6feb; cursor: pointer; }
+    .priority-high { color: #b42318; font-weight: 700; }
+    .priority-medium { color: #9a6700; font-weight: 700; }
+    .priority-low { color: #027a48; font-weight: 700; }
+    .note { color: #52616f; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>NexusLead AI</h1>
+    <p>Intelligent B2B Lead Operations Platform for human-reviewed sales teams.</p>
+    <p class="note">Demo data only. No scraping, no real personal data, no automated outreach.</p>
+  </header>
+  <main>
+    <section class="grid">
+      <div class="panel"><h2>Daily Leads</h2><div class="metric">{{ analytics.daily_lead_count }}</div></div>
+      <div class="panel"><h2>High Priority</h2><div class="metric">{{ analytics.high_priority_leads }}</div></div>
+      <div class="panel"><h2>Follow-ups</h2><div class="metric">{{ analytics.follow_up_queue }}</div></div>
+      <div class="panel"><h2>Opportunity Value</h2><div class="metric">${{ "{:,}".format(analytics.estimated_opportunity_value) }}</div></div>
+    </section>
+
+    <section class="panel" style="margin-top: 20px;">
+      <h2>Filters</h2>
+      <form method="get" action="/dashboard">
+        <select name="client_id">
+          <option value="">All clients</option>
+          {% for client in clients %}
+          <option value="{{ client.id }}" {% if filters.client_id == client.id|string %}selected{% endif %}>{{ client.name }}</option>
+          {% endfor %}
+        </select>
+        <input name="city" placeholder="City" value="{{ filters.city or '' }}">
+        <input name="category" placeholder="Category" value="{{ filters.category or '' }}">
+        <select name="priority">
+          <option value="">All priorities</option>
+          {% for item in ["High", "Medium", "Low"] %}
+          <option value="{{ item }}" {% if filters.priority == item %}selected{% endif %}>{{ item }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">Apply</button>
+        <a class="button" href="/export/leads.csv">Export Leads</a>
+        <a class="button" href="/export/tasks.csv">Export Tasks</a>
+        <a class="button" href="/reports/daily">Daily Report</a>
+      </form>
+    </section>
+
+    <section class="panel" style="margin-top: 20px;">
+      <h2>Lead Queue</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Priority</th><th>Lead</th><th>Client</th><th>Score</th><th>Outreach Draft</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for lead in leads %}
+          <tr>
+            <td class="priority-{{ lead.priority|lower }}">{{ lead.priority }}</td>
+            <td><strong>{{ lead.category }}</strong><br>{{ lead.city }}<br><span class="note">{{ lead.context }}</span></td>
+            <td>{{ lead.client_name or "Unmatched" }}</td>
+            <td>Urgency {{ lead.urgency }}/10<br>Fit {{ lead.client_fit }}/10<br><span class="note">{{ lead.explanation }}</span></td>
+            <td>{{ lead.outreach_draft }}<br><span class="note">Status: {{ lead.outreach_status }}</span></td>
+            <td>{{ lead.status }}<br><span class="note">{{ lead.next_action }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="grid" style="margin-top: 20px;">
+      <div class="panel">
+        <h2>Follow-up Tasks</h2>
+        <table>
+          <thead><tr><th>Due</th><th>Task</th><th>Client</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for task in tasks %}
+            <tr><td>{{ task.due_date }}</td><td>{{ task.task }}</td><td>{{ task.client_name }}</td><td>{{ task.status }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h2>Review Monitoring</h2>
+        <table>
+          <thead><tr><th>Client</th><th>Sentiment</th><th>Draft</th></tr></thead>
+          <tbody>
+          {% for review in reviews %}
+            <tr><td>{{ review.client_name }}<br><span class="note">{{ review.text }}</span></td><td>{{ review.sentiment }}</td><td>{{ review.response_draft }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
