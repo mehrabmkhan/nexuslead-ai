@@ -2,7 +2,7 @@
 
 NexusLead AI is an internal B2B lead operations platform for NextRNS-style BPO teams. It gives admins, managers, and lead generation specialists a daily workspace for lead intake, qualification, client matching, outreach draft review, follow-up tasks, reporting, and exports.
 
-Live URL: add your Render/Fly deployment URL here after publishing.
+Live URL: https://nexuslead-ai.onrender.com
 
 ## Product Scope
 
@@ -117,13 +117,41 @@ On Windows PowerShell locally, use `$env:PORT=8000` or run the explicit port com
 
 ## Live Demo Deployment
 
-Render is the simplest fit because NexusLead AI is a server-rendered FastAPI app with sessions, uploads, SQLite local mode, and API routes. Netlify/Vercel are better for separate static frontends; they are not the best primary host for this server-rendered FastAPI MVP.
+Live application: https://nexuslead-ai.onrender.com
 
-1. Create a Render Web Service from this repository.
-2. Use the included `render.yaml` or set the build/start commands manually.
-3. Add `NEXUSLEAD_SESSION_SECRET`.
-4. Add a free PostgreSQL service from Neon, Supabase, or Render PostgreSQL when you are ready to run production migrations.
-5. Set the live URL in this README after deployment.
+NexusLead AI is deployed on Render Free as a server-rendered FastAPI web service. Netlify/Vercel are better for separate static frontends; Render/Fly.io are the better fit for this backend-rendered MVP.
+
+Deployment architecture:
+
+- GitHub repository: `mehrabmkhan/nexuslead-ai`
+- Render service: `nexuslead-ai`
+- Service type: Web Service
+- Runtime: Python
+- Plan: Free
+- Region: Oregon
+- Build command: `pip install -r requirements.txt`
+- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Health check: `/health`
+- Public routes: `/login`, `/dashboard`, `/docs`, `/health`, `/metrics`
+- Storage: SQLite local MVP database at `data/nexuslead.db` on Render's ephemeral filesystem
+- Future production database: Neon, Supabase, or Render PostgreSQL via `DATABASE_URL` after migrations are added
+
+Render environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `NEXUSLEAD_SESSION_SECRET` | Set in Render service environment |
+| `NEXUSLEAD_UPLOAD_DIR` | `uploads` |
+| `NEXUSLEAD_EMAIL_PROVIDER` | `console` |
+| `PORT` | Provided by Render |
+
+Deployment instructions:
+
+1. Push changes to `main`.
+2. Render auto-deploys from GitHub commits.
+3. If deploying manually, run `render deploys create <service-id> --wait`.
+4. Verify `https://nexuslead-ai.onrender.com/health` returns `status: ready`.
+5. Verify login and dashboard at `https://nexuslead-ai.onrender.com/login`.
 
 ## Testing
 
