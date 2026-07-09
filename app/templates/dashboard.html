@@ -9,12 +9,17 @@
       color-scheme: light;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       --ink: #17202a;
+      --text: #344054;
       --muted: #667085;
-      --line: #d7dde5;
-      --page: #f4f6f8;
+      --faint: #98a2b3;
+      --line: #d9e1ec;
+      --line-soft: #e9edf3;
+      --page: #f5f7fb;
       --panel: #ffffff;
-      --nav: #102235;
+      --nav: #111827;
+      --nav-soft: #1f2937;
       --brand: #2563eb;
+      --brand-strong: #1d4ed8;
       --brand-soft: #eff6ff;
       --green: #087443;
       --green-soft: #ecfdf3;
@@ -22,81 +27,143 @@
       --amber-soft: #fffaeb;
       --red: #b42318;
       --red-soft: #fff1f3;
+      --violet: #6941c6;
+      --violet-soft: #f4f3ff;
+      --shadow: 0 14px 38px rgba(16, 24, 40, .08);
     }
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body { margin: 0; background: var(--page); color: var(--ink); }
-    .shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
-    aside.nav { background: var(--nav); color: white; padding: 22px 18px; position: sticky; top: 0; height: 100vh; }
-    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 26px; }
-    .mark { width: 38px; height: 38px; border-radius: 8px; background: white; color: var(--nav); display: grid; place-items: center; font-weight: 900; }
-    .brand h1 { margin: 0; font-size: 18px; letter-spacing: 0; }
+    a { color: inherit; }
+    .loading-bar { position: fixed; inset: 0 0 auto 0; height: 3px; z-index: 5; background: linear-gradient(90deg, var(--brand), #12b76a, #7c3aed); transform-origin: left; animation: load 900ms ease-out forwards; }
+    @keyframes load { from { transform: scaleX(0); opacity: .8; } to { transform: scaleX(1); opacity: 0; } }
+    .shell { display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 100vh; }
+    aside.nav { background: var(--nav); color: white; padding: 20px 16px; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 20px; }
+    .brand { display: flex; align-items: center; gap: 11px; padding: 2px 6px 14px; border-bottom: 1px solid rgba(255,255,255,.12); }
+    .mark { width: 40px; height: 40px; border-radius: 8px; background: white; color: var(--nav); display: grid; place-items: center; font-weight: 900; }
+    .brand h1 { margin: 0; font-size: 17px; letter-spacing: 0; }
     .brand p { margin: 2px 0 0; color: #cbd5e1; font-size: 12px; }
-    .nav a { display: block; color: #e5eaf2; text-decoration: none; padding: 10px 11px; border-radius: 6px; margin: 4px 0; font-size: 14px; }
-    .nav a:hover { background: rgba(255,255,255,.08); }
-    .userbox { position: absolute; left: 18px; right: 18px; bottom: 18px; border-top: 1px solid rgba(255,255,255,.16); padding-top: 16px; }
+    .nav-section { display: grid; gap: 5px; }
+    .nav-label { color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: 850; letter-spacing: .06em; padding: 0 10px 5px; }
+    .nav a { display: flex; align-items: center; gap: 10px; color: #eef2f7; text-decoration: none; padding: 10px 11px; border-radius: 8px; font-size: 14px; font-weight: 700; }
+    .nav a:hover, .nav a:focus { background: rgba(255,255,255,.08); outline: none; }
+    .nav a.active { background: var(--brand); color: white; box-shadow: 0 10px 24px rgba(37,99,235,.24); }
+    .nav-icon { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; background: rgba(255,255,255,.1); font-size: 12px; font-weight: 900; }
+    .userbox { margin-top: auto; border-top: 1px solid rgba(255,255,255,.14); padding: 16px 8px 0; }
     .userbox strong { display: block; font-size: 14px; }
-    .userbox span { color: #cbd5e1; font-size: 12px; }
-    .userbox form { margin-top: 10px; }
-    main { padding: 24px 28px 40px; min-width: 0; }
-    .topbar { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 20px; }
-    .topbar h2 { margin: 0; font-size: 24px; letter-spacing: 0; }
-    .topbar p { margin: 5px 0 0; color: var(--muted); }
-    .grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 14px; }
-    .layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(330px, .7fr); gap: 18px; align-items: start; margin-top: 18px; }
-    .panel, .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
-    .panel { padding: 16px; margin-bottom: 18px; }
-    .card { padding: 14px; }
-    h3 { margin: 0 0 12px; font-size: 16px; }
+    .userbox span { color: #cbd5e1; font-size: 12px; line-height: 1.4; }
+    .role-chip { display: inline-flex; margin-top: 10px; padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,.1); color: #e5e7eb; font-size: 12px; font-weight: 800; }
+    .userbox form { margin-top: 12px; }
+    main { padding: 26px 30px 44px; min-width: 0; }
+    .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; margin-bottom: 20px; }
+    .kicker { color: var(--brand-strong); font-size: 13px; font-weight: 850; margin-bottom: 7px; }
+    .topbar h2 { margin: 0; font-size: clamp(25px, 3vw, 34px); line-height: 1.08; letter-spacing: 0; }
+    .topbar p { margin: 8px 0 0; color: var(--muted); line-height: 1.55; max-width: 760px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; justify-content: flex-end; }
+    .panel, .card { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 8px; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
+    .panel { padding: 18px; margin-bottom: 18px; }
+    .card { padding: 17px; position: relative; overflow: hidden; }
+    .card::after { content: ""; position: absolute; inset: auto 16px 0 16px; height: 3px; background: var(--brand); border-radius: 999px 999px 0 0; opacity: .18; }
+    .metric-grid { display: grid; grid-template-columns: repeat(5, minmax(145px, 1fr)); gap: 14px; }
+    .metric-label { color: var(--muted); font-size: 12px; font-weight: 850; text-transform: uppercase; letter-spacing: .04em; }
+    .metric { font-size: 30px; font-weight: 880; line-height: 1; margin-top: 10px; letter-spacing: 0; }
+    .metric-sub { margin-top: 8px; color: var(--faint); font-size: 12px; }
+    h3 { margin: 0; font-size: 17px; letter-spacing: 0; }
     h4 { margin: 0 0 8px; font-size: 14px; }
-    .metric { font-size: 27px; font-weight: 820; line-height: 1; margin-top: 8px; }
     .muted { color: var(--muted); font-size: 13px; line-height: 1.45; }
-    .message { border-color: #9ec5fe; background: var(--brand-soft); color: #1d4ed8; }
-    form.stack { display: grid; gap: 10px; }
-    form.inline, .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .message { border-color: #9ec5fe; background: var(--brand-soft); color: var(--brand-strong); font-weight: 750; }
+    .section-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }
+    .section-title p { margin: 4px 0 0; }
+    form.stack { display: grid; gap: 12px; }
+    form.inline, .filter-grid { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .field { display: grid; gap: 6px; min-width: 0; }
+    .field label, .sr-label { color: var(--text); font-size: 12px; font-weight: 850; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
     input, select, textarea, button, a.button {
       border: 1px solid #b8c2cc;
-      border-radius: 6px;
-      padding: 8px 10px;
+      border-radius: 7px;
+      padding: 9px 11px;
       background: white;
       color: var(--ink);
       font: inherit;
-      min-height: 38px;
+      min-height: 40px;
       max-width: 100%;
     }
-    textarea { min-height: 86px; resize: vertical; }
-    button, a.button { background: var(--brand); color: white; border-color: var(--brand); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; font-weight: 750; }
-    button.secondary, a.secondary { background: white; color: var(--brand); }
-    button.ghost { background: white; color: var(--ink); border-color: var(--line); }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { border-bottom: 1px solid #e5e9ef; padding: 10px; text-align: left; vertical-align: top; }
-    th { background: #f0f3f7; color: #344054; font-weight: 800; }
-    .badge { display: inline-flex; border: 1px solid #cfd7e2; border-radius: 999px; padding: 3px 8px; font-size: 12px; background: #f8fafc; white-space: nowrap; }
+    input:focus, select:focus, textarea:focus { outline: 3px solid #dbeafe; border-color: var(--brand); }
+    textarea { min-height: 96px; resize: vertical; }
+    button, a.button { background: var(--brand); color: white; border-color: var(--brand); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800; white-space: nowrap; }
+    button:hover, a.button:hover { background: var(--brand-strong); border-color: var(--brand-strong); }
+    button.secondary, a.secondary { background: white; color: var(--brand-strong); border-color: #b8cdfd; }
+    button.ghost, a.ghost { background: white; color: var(--ink); border-color: var(--line); }
+    button.secondary:hover, a.secondary:hover, button.ghost:hover, a.ghost:hover { background: #f8fafc; color: var(--brand-strong); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(340px, .75fr); gap: 18px; align-items: start; margin-top: 18px; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .search-field { min-width: min(300px, 100%); flex: 1 1 260px; }
+    .filter-grid select, .filter-grid input { min-width: 150px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line-soft); border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; background: white; }
+    th, td { border-bottom: 1px solid var(--line-soft); padding: 12px; text-align: left; vertical-align: top; }
+    tr:last-child td { border-bottom: 0; }
+    th { background: #f8fafc; color: #475467; font-weight: 850; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    tbody tr:hover { background: #fbfdff; }
+    .lead-title { font-weight: 850; color: var(--ink); }
+    .lead-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .badge { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #cfd7e2; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 800; background: #f8fafc; white-space: nowrap; }
+    .badge::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: currentColor; opacity: .75; }
     .priority-high { color: var(--red); background: var(--red-soft); border-color: #fda4af; }
     .priority-medium { color: var(--amber); background: var(--amber-soft); border-color: #fedf89; }
     .priority-low { color: var(--green); background: var(--green-soft); border-color: #abefc6; }
-    .actions { display: grid; gap: 8px; min-width: 210px; }
-    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .client-list { display: grid; gap: 10px; }
-    .client-card { border: 1px solid #e5e9ef; border-radius: 8px; padding: 12px; background: #fbfcfe; }
-    .client-card strong { display: block; }
-    .section-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
-    @media (max-width: 1120px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .layout { grid-template-columns: 1fr; } }
-    @media (max-width: 820px) { .shell { grid-template-columns: 1fr; } aside.nav { position: static; height: auto; } .userbox { position: static; margin-top: 18px; } main { padding: 16px; } .topbar { flex-direction: column; } .grid, .two { grid-template-columns: 1fr; } table { display: block; overflow-x: auto; white-space: nowrap; } }
+    .status-badge { color: var(--violet); background: var(--violet-soft); border-color: #d9d6fe; }
+    .actions { display: grid; gap: 9px; min-width: 220px; }
+    .client-list, .stack-list { display: grid; gap: 10px; }
+    .client-card, .mini-card { border: 1px solid var(--line-soft); border-radius: 8px; padding: 13px; background: #fbfcfe; }
+    .client-card strong, .mini-card strong { display: block; color: var(--ink); }
+    .client-card:hover, .mini-card:hover { border-color: #c8d4e4; background: white; box-shadow: 0 8px 22px rgba(16,24,40,.06); }
+    .chart-list { display: grid; gap: 12px; }
+    .chart-row { display: grid; gap: 7px; }
+    .chart-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--text); font-size: 13px; font-weight: 750; }
+    .bar { height: 9px; border-radius: 999px; background: #edf2f7; overflow: hidden; }
+    .bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--brand), #12b76a); min-width: 6px; }
+    .empty { border: 1px dashed #cbd5e1; border-radius: 8px; background: #fbfdff; padding: 22px; text-align: center; color: var(--muted); }
+    .empty strong { display: block; color: var(--ink); margin-bottom: 6px; }
+    .split-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .75fr); gap: 16px; align-items: start; }
+    .form-help { color: var(--faint); font-size: 12px; margin-top: -4px; }
+    .quick-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .stat-pill { border: 1px solid var(--line-soft); border-radius: 8px; padding: 12px; background: #fbfcfe; }
+    .stat-pill strong { display: block; font-size: 18px; }
+    @media (max-width: 1180px) { .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .layout, .split-panel { grid-template-columns: 1fr; } }
+    @media (max-width: 860px) {
+      .shell { grid-template-columns: 1fr; }
+      aside.nav { position: static; height: auto; }
+      .nav-section { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .userbox { margin-top: 0; }
+      main { padding: 18px; }
+      .topbar { grid-template-columns: 1fr; }
+      .toolbar { justify-content: flex-start; }
+      .metric-grid, .two, .quick-stats { grid-template-columns: 1fr; }
+      .filter-grid { display: grid; grid-template-columns: 1fr; }
+      .filter-grid select, .filter-grid input, .search-field { width: 100%; min-width: 0; }
+    }
   </style>
 </head>
 <body>
+  <div class="loading-bar" aria-hidden="true"></div>
   <div class="shell">
-    <aside class="nav">
-      <div class="brand"><div class="mark">NL</div><div><h1>NexusLead AI</h1><p>NextRNS operations</p></div></div>
-      <a href="#overview">Overview</a>
-      <a href="#pipeline">Lead pipeline</a>
-      <a href="#clients">Clients</a>
-      <a href="#tasks">Task queue</a>
-      <a href="#analytics">Analytics</a>
-      <a href="/docs">API docs</a>
+    <aside class="nav" aria-label="Primary navigation">
+      <div class="brand"><div class="mark" aria-hidden="true">NL</div><div><h1>NexusLead AI</h1><p>NextRNS operations</p></div></div>
+      <div class="nav-section">
+        <div class="nav-label">Workspace</div>
+        <a class="active" href="#overview"><span class="nav-icon" aria-hidden="true">O</span>Overview</a>
+        <a href="#pipeline"><span class="nav-icon" aria-hidden="true">P</span>Pipeline</a>
+        <a href="#tasks"><span class="nav-icon" aria-hidden="true">T</span>Tasks</a>
+        <a href="#clients"><span class="nav-icon" aria-hidden="true">C</span>Clients</a>
+        <a href="#analytics"><span class="nav-icon" aria-hidden="true">A</span>Analytics</a>
+        <a href="/docs"><span class="nav-icon" aria-hidden="true">D</span>API docs</a>
+      </div>
       <div class="userbox">
         <strong>{{ user.name }}</strong>
-        <span>{{ user.role|title }} - {{ user.email }}</span>
+        <span>{{ user.email }}</span><br>
+        <span class="role-chip">{{ user.role|title }}</span>
         <form method="post" action="/logout"><button type="submit" class="secondary">Sign out</button></form>
       </div>
     </aside>
@@ -104,130 +171,170 @@
     <main>
       <div class="topbar" id="overview">
         <div>
+          <div class="kicker">Internal B2B lead operations</div>
           <h2>Lead Operations Workspace</h2>
-          <p>Internal B2B lead operations platform for NextRNS-style BPO teams.</p>
+          <p>Qualify inbound demand, match clients, coordinate follow-ups, and keep every outreach draft in a human-reviewed workflow.</p>
         </div>
-        <div class="toolbar">
+        <div class="toolbar" aria-label="Export actions">
           {% if can_export_leads %}<a class="button" href="/export/leads.csv">Export leads</a>{% endif %}
           <a class="button secondary" href="/export/tasks.csv">Export tasks</a>
           {% if can_export_leads %}<a class="button secondary" href="/export/google-sheets.csv">Sheets CSV</a>{% endif %}
-          <a class="button secondary" href="/reports/daily">Daily report</a>
+          <a class="button ghost" href="/reports/daily">Daily report</a>
         </div>
       </div>
 
-      {% if message %}<section class="panel message">{{ message }}</section>{% endif %}
+      {% if message %}<section class="panel message" role="status">{{ message }}</section>{% endif %}
 
-      <section class="grid">
-        <div class="card"><span class="muted">Active leads</span><div class="metric">{{ analytics.daily_lead_count }}</div></div>
-        <div class="card"><span class="muted">High priority</span><div class="metric">{{ analytics.high_priority_leads }}</div></div>
-        <div class="card"><span class="muted">Follow-ups</span><div class="metric">{{ analytics.follow_up_queue }}</div></div>
-        <div class="card"><span class="muted">Conversion</span><div class="metric">{{ analytics.conversion_rate }}%</div></div>
-        <div class="card"><span class="muted">Opportunity</span><div class="metric">${{ "{:,}".format(analytics.estimated_opportunity_value) }}</div></div>
+      <section class="metric-grid" aria-label="Operational metrics">
+        <div class="card"><span class="metric-label">Active leads</span><div class="metric">{{ analytics.daily_lead_count }}</div><div class="metric-sub">Visible in this workspace</div></div>
+        <div class="card"><span class="metric-label">High priority</span><div class="metric">{{ analytics.high_priority_leads }}</div><div class="metric-sub">Needs fast review</div></div>
+        <div class="card"><span class="metric-label">Follow-ups</span><div class="metric">{{ analytics.follow_up_queue }}</div><div class="metric-sub">Open task queue</div></div>
+        <div class="card"><span class="metric-label">Conversion</span><div class="metric">{{ analytics.conversion_rate }}%</div><div class="metric-sub">Converted pipeline share</div></div>
+        <div class="card"><span class="metric-label">Opportunity</span><div class="metric">${{ "{:,}".format(analytics.estimated_opportunity_value) }}</div><div class="metric-sub">Estimated lead value</div></div>
       </section>
 
-      <section class="panel">
-        <div class="section-title"><h3>Operations filters</h3></div>
-        <form method="get" action="/dashboard" class="inline">
-          <select name="client_id"><option value="">All clients</option>{% for client in clients %}<option value="{{ client.id }}" {% if filters.client_id == client.id|string %}selected{% endif %}>{{ client.name }}</option>{% endfor %}</select>
-          <input name="city" placeholder="City" value="{{ filters.city or '' }}">
-          <input name="category" placeholder="Category" value="{{ filters.category or '' }}">
-          <select name="priority"><option value="">All priorities</option>{% for item in ["High", "Medium", "Low"] %}<option value="{{ item }}" {% if filters.priority == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select>
-          <select name="status"><option value="">All statuses</option>{% for item in pipeline_statuses %}<option value="{{ item }}" {% if filters.status == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select>
-          <button type="submit">Apply</button><a class="button secondary" href="/dashboard">Reset</a>
+      <section class="panel" aria-labelledby="filter-heading">
+        <div class="section-title"><div><h3 id="filter-heading">Search and filters</h3><p class="muted">Refine the pipeline by client, city, business type, priority, or stage.</p></div></div>
+        <form method="get" action="/dashboard" class="filter-grid">
+          <div class="field search-field"><label for="category-filter">Search business type</label><input id="category-filter" name="category" placeholder="Security company, cleaning, cabinetry" value="{{ filters.category or '' }}"></div>
+          <div class="field"><label for="client-filter">Client</label><select id="client-filter" name="client_id"><option value="">All clients</option>{% for client in clients %}<option value="{{ client.id }}" {% if filters.client_id == client.id|string %}selected{% endif %}>{{ client.name }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="city-filter">City</label><input id="city-filter" name="city" placeholder="City" value="{{ filters.city or '' }}"></div>
+          <div class="field"><label for="priority-filter">Priority</label><select id="priority-filter" name="priority"><option value="">All priorities</option>{% for item in ["High", "Medium", "Low"] %}<option value="{{ item }}" {% if filters.priority == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="status-filter">Status</label><select id="status-filter" name="status"><option value="">All statuses</option>{% for item in pipeline_statuses %}<option value="{{ item }}" {% if filters.status == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
+          <div class="toolbar"><button type="submit">Apply filters</button><a class="button secondary" href="/dashboard">Reset</a></div>
         </form>
       </section>
 
       <div class="layout">
         <section>
           <div class="panel">
-            <h3>Lead intake</h3>
+            <div class="section-title"><div><h3>Lead intake</h3><p class="muted">Create a qualified lead and route it into the review workflow.</p></div></div>
             <form method="post" action="/leads" class="stack">
-              <div class="two"><input name="source" value="Manual intake" aria-label="Source"><input name="owner" value="{{ user.name if user.role == 'agent' else 'Unassigned' }}" aria-label="Owner"></div>
-              <div class="two"><input name="category" placeholder="Business type" required><input name="city" placeholder="City" required></div>
-              <div class="two"><input name="budget" type="number" min="0" step="100" placeholder="Budget"><input name="due_date" type="date" aria-label="Due date"></div>
-              <textarea name="context" placeholder="Lead context" required></textarea>
+              <div class="two"><div class="field"><label for="source">Source</label><input id="source" name="source" value="Manual intake"></div><div class="field"><label for="owner">Owner</label><input id="owner" name="owner" value="{{ user.name if user.role == 'agent' else 'Unassigned' }}"></div></div>
+              <div class="two"><div class="field"><label for="category">Business type</label><input id="category" name="category" placeholder="Security company" required></div><div class="field"><label for="city">City</label><input id="city" name="city" placeholder="Mississauga" required></div></div>
+              <div class="two"><div class="field"><label for="budget">Budget</label><input id="budget" name="budget" type="number" min="0" step="100" placeholder="5000"></div><div class="field"><label for="due_date">Task due date</label><input id="due_date" name="due_date" type="date"></div></div>
+              <div class="field"><label for="context">Lead context</label><textarea id="context" name="context" placeholder="Summarize the need, source context, timing, and any qualification notes." required></textarea></div>
+              <p class="form-help">Outreach is drafted for review only; it is not sent automatically.</p>
               <button type="submit">Create lead</button>
             </form>
           </div>
 
           <div class="panel" id="pipeline">
-            <div class="section-title"><h3>Lead pipeline</h3><span class="muted">Human approval required before outreach</span></div>
-            <table>
-              <thead><tr><th>Priority</th><th>Lead</th><th>Client match</th><th>Draft</th><th>Workflow</th></tr></thead>
-              <tbody>
-                {% for lead in leads %}
-                <tr>
-                  <td><span class="badge priority-{{ lead.priority|lower }}">{{ lead.priority }}</span><br><br><span class="badge">{{ lead.status }}</span></td>
-                  <td><strong>{{ lead.category }}</strong> - {{ lead.city }}<br><span class="muted">{{ lead.context }}</span><br><span class="muted">Owner: {{ lead.owner }} - Source: {{ lead.source }}</span>{% if lead.attachment_name %}<br><span class="badge">{{ lead.attachment_name }}</span>{% endif %}</td>
-                  <td>{{ lead.client_name or "Unmatched" }}<br><span class="muted">Urgency {{ lead.urgency }}/10 - Fit {{ lead.client_fit }}/10</span><br><span class="muted">{{ lead.explanation }}</span></td>
-                  <td>{{ lead.outreach_draft }}<br><br><span class="badge">{{ lead.outreach_status }}</span></td>
-                  <td>
-                    <div class="actions">
-                      <form method="post" action="/leads/{{ lead.id }}/status" class="stack"><select name="status">{% for item in pipeline_statuses %}<option value="{{ item }}" {% if lead.status == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select><input name="note" placeholder="Add note"><button type="submit">Update</button></form>
-                      {% if can_review_leads %}<form method="post" action="/leads/{{ lead.id }}/assign" class="inline"><select name="owner">{% for person in users %}<option value="{{ person.name }}" {% if lead.owner == person.name %}selected{% endif %}>{{ person.name }}</option>{% endfor %}</select><button type="submit" class="ghost">Assign</button></form><form method="post" action="/leads/{{ lead.id }}/approve"><button type="submit" class="secondary">Approve draft</button></form>{% endif %}
-                      <form method="post" action="/leads/{{ lead.id }}/attachments" enctype="multipart/form-data" class="stack"><input type="file" name="file"><button type="submit" class="ghost">Add file</button></form>
-                    </div>
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+            <div class="section-title"><div><h3>Lead pipeline</h3><p class="muted">Human approval required before outreach.</p></div><span class="badge status-badge">{{ leads|length }} visible</span></div>
+            {% if leads %}
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Priority</th><th>Lead</th><th>Client match</th><th>Draft</th><th>Workflow</th></tr></thead>
+                <tbody>
+                  {% for lead in leads %}
+                  <tr>
+                    <td><span class="badge priority-{{ lead.priority|lower }}">{{ lead.priority }}</span><br><br><span class="badge status-badge">{{ lead.status }}</span></td>
+                    <td><div class="lead-title">{{ lead.category }} - {{ lead.city }}</div><p class="muted">{{ lead.context }}</p><div class="lead-meta"><span class="badge">{{ lead.owner }}</span><span class="badge">{{ lead.source }}</span>{% if lead.attachment_name %}<span class="badge">{{ lead.attachment_name }}</span>{% endif %}</div></td>
+                    <td><strong>{{ lead.client_name or "Unmatched" }}</strong><br><span class="muted">Urgency {{ lead.urgency }}/10 - Fit {{ lead.client_fit }}/10</span><br><span class="muted">{{ lead.explanation }}</span></td>
+                    <td><span class="muted">{{ lead.outreach_draft }}</span><br><br><span class="badge status-badge">{{ lead.outreach_status }}</span></td>
+                    <td>
+                      <div class="actions">
+                        <form method="post" action="/leads/{{ lead.id }}/status" class="stack"><label class="sr-only" for="status-{{ lead.id }}">Update status</label><select id="status-{{ lead.id }}" name="status">{% for item in pipeline_statuses %}<option value="{{ item }}" {% if lead.status == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select><label class="sr-only" for="note-{{ lead.id }}">Add note</label><input id="note-{{ lead.id }}" name="note" placeholder="Add note"><button type="submit">Update</button></form>
+                        {% if can_review_leads %}<form method="post" action="/leads/{{ lead.id }}/assign" class="inline"><label class="sr-only" for="owner-{{ lead.id }}">Assign owner</label><select id="owner-{{ lead.id }}" name="owner">{% for person in users %}<option value="{{ person.name }}" {% if lead.owner == person.name %}selected{% endif %}>{{ person.name }}</option>{% endfor %}</select><button type="submit" class="ghost">Assign</button></form><form method="post" action="/leads/{{ lead.id }}/approve"><button type="submit" class="secondary">Approve draft</button></form>{% endif %}
+                        <form method="post" action="/leads/{{ lead.id }}/attachments" enctype="multipart/form-data" class="stack"><label class="sr-only" for="file-{{ lead.id }}">Attach file</label><input id="file-{{ lead.id }}" type="file" name="file"><button type="submit" class="ghost">Add file</button></form>
+                      </div>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="empty"><strong>No leads match these filters.</strong>Adjust filters or create a new lead to populate the pipeline.</div>
+            {% endif %}
           </div>
         </section>
 
         <aside>
+          <div class="panel" id="analytics">
+            <div class="section-title"><div><h3>Analytics</h3><p class="muted">Pipeline distribution and category mix.</p></div></div>
+            {% set lead_total = analytics.daily_lead_count if analytics.daily_lead_count else 1 %}
+            <div class="chart-list">
+              {% for status, count in analytics.conversion_status_summary.items() %}
+              <div class="chart-row"><div class="chart-meta"><span>{{ status }}</span><span>{{ count }}</span></div><div class="bar"><span style="width: {{ (count / lead_total * 100)|round(0, 'floor') }}%"></span></div></div>
+              {% endfor %}
+            </div>
+            <div class="quick-stats" style="margin-top: 14px;"><div class="stat-pill"><span class="muted">Database</span><strong>{{ analytics.database.engine|title }}</strong></div><div class="stat-pill"><span class="muted">Open tasks</span><strong>{{ analytics.follow_up_queue }}</strong></div></div>
+          </div>
+
+          <div class="panel">
+            <h3>Lead categories</h3>
+            {% if analytics.leads_by_category %}
+            {% set lead_total = analytics.daily_lead_count if analytics.daily_lead_count else 1 %}
+            <div class="chart-list" style="margin-top: 14px;">
+              {% for category, count in analytics.leads_by_category.items() %}
+              <div class="chart-row"><div class="chart-meta"><span>{{ category }}</span><span>{{ count }}</span></div><div class="bar"><span style="width: {{ (count / lead_total * 100)|round(0, 'floor') }}%"></span></div></div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty"><strong>No category data yet.</strong>Create leads to see category mix.</div>
+            {% endif %}
+          </div>
+
           <div class="panel">
             <h3>CSV import</h3>
-            <form method="post" action="/leads/import" enctype="multipart/form-data" class="stack"><input type="file" name="file" accept=".csv,text/csv" required><button type="submit">Import leads</button></form>
+            <form method="post" action="/leads/import" enctype="multipart/form-data" class="stack"><label class="sr-label" for="lead-file">Upload CSV</label><input id="lead-file" type="file" name="file" accept=".csv,text/csv" required><button type="submit">Import leads</button></form>
             <p class="muted">Required columns: source, category, city, context, budget.</p>
           </div>
 
           <div class="panel" id="clients">
-            <h3>Client profiles</h3>
+            <div class="section-title"><div><h3>Client profiles</h3><p class="muted">Active matching accounts.</p></div></div>
+            {% if clients %}
             <div class="client-list">
               {% for client in clients[:4] %}
               <div class="client-card"><strong>{{ client.name }}</strong><span class="muted">{{ client.category }} - {{ client.city }}</span><br><span class="muted">{{ client.service_area }}</span><br><span class="muted">${{ "{:,}".format(client.min_budget) }} - ${{ "{:,}".format(client.max_budget) }}</span></div>
               {% endfor %}
             </div>
+            {% else %}
+            <div class="empty"><strong>No clients yet.</strong>Add a client profile to activate matching.</div>
+            {% endif %}
           </div>
 
           {% if can_manage_clients %}
           <div class="panel">
             <h3>Add client</h3>
             <form method="post" action="/clients" class="stack">
-              <input name="name" placeholder="Client name" required>
-              <div class="two"><input name="category" placeholder="Business type" required><input name="city" placeholder="Home city" required></div>
-              <input name="service_area" placeholder="Service area" required>
-              <div class="two"><input name="min_budget" type="number" min="0" placeholder="Min budget"><input name="max_budget" type="number" min="0" placeholder="Max budget"></div>
-              <input name="contact_email" type="email" placeholder="Contact email"><textarea name="notes" placeholder="Client notes"></textarea>
+              <div class="field"><label for="client-name">Client name</label><input id="client-name" name="name" placeholder="Client name" required></div>
+              <div class="two"><div class="field"><label for="client-category">Business type</label><input id="client-category" name="category" placeholder="Business type" required></div><div class="field"><label for="client-city">Home city</label><input id="client-city" name="city" placeholder="Home city" required></div></div>
+              <div class="field"><label for="service-area">Service area</label><input id="service-area" name="service_area" placeholder="Toronto, Mississauga" required></div>
+              <div class="two"><div class="field"><label for="min-budget">Min budget</label><input id="min-budget" name="min_budget" type="number" min="0" placeholder="1000"></div><div class="field"><label for="max-budget">Max budget</label><input id="max-budget" name="max_budget" type="number" min="0" placeholder="10000"></div></div>
+              <div class="field"><label for="contact-email">Contact email</label><input id="contact-email" name="contact_email" type="email" placeholder="client@nextrns.local"></div>
+              <div class="field"><label for="client-notes">Client notes</label><textarea id="client-notes" name="notes" placeholder="Service preferences, qualification rules, or handoff notes"></textarea></div>
               <button type="submit">Add client</button>
             </form>
           </div>
           <div class="panel">
             <h3>User management</h3>
-            <form method="post" action="/users" class="stack"><input name="name" placeholder="Full name" required><input name="email" type="email" placeholder="Email" required><select name="role">{% for role in roles %}<option value="{{ role }}">{{ role|title }}</option>{% endfor %}</select><input name="password" type="password" placeholder="Temporary password" required><button type="submit">Create user</button></form>
+            <form method="post" action="/users" class="stack"><div class="field"><label for="user-name">Full name</label><input id="user-name" name="name" placeholder="Full name" required></div><div class="field"><label for="user-email">Email</label><input id="user-email" name="email" type="email" placeholder="Email" required></div><div class="field"><label for="user-role">Role</label><select id="user-role" name="role">{% for role in roles %}<option value="{{ role }}">{{ role|title }}</option>{% endfor %}</select></div><div class="field"><label for="user-password">Temporary password</label><input id="user-password" name="password" type="password" placeholder="Temporary password" required></div><button type="submit">Create user</button></form>
           </div>
           {% endif %}
 
           <div class="panel" id="tasks">
-            <h3>Follow-up queue</h3>
-            <table><thead><tr><th>Due</th><th>Task</th><th></th></tr></thead><tbody>{% for task in tasks %}<tr><td>{{ task.due_date }}<br><span class="badge">{{ task.status }}</span></td><td>{{ task.task }}<br><span class="muted">{{ task.owner }} - {{ task.client_name or "Unmatched" }}</span></td><td><form method="post" action="/tasks/{{ task.id }}/close"><button class="ghost" type="submit">Close</button></form></td></tr>{% endfor %}</tbody></table>
-          </div>
-
-          <div class="panel" id="analytics">
-            <h3>Analytics</h3>
-            <p class="muted">Database: {{ analytics.database.engine }}</p>
-            <table><thead><tr><th>Status</th><th>Count</th></tr></thead><tbody>{% for status, count in analytics.conversion_status_summary.items() %}<tr><td>{{ status }}</td><td>{{ count }}</td></tr>{% endfor %}</tbody></table>
+            <div class="section-title"><div><h3>Follow-up queue</h3><p class="muted">Time-sensitive tasks by owner.</p></div></div>
+            {% if tasks %}
+            <div class="stack-list">{% for task in tasks %}<div class="mini-card"><strong>{{ task.task }}</strong><span class="muted">Due {{ task.due_date }} - {{ task.owner }}</span><br><span class="badge status-badge">{{ task.status }}</span><span class="muted"> {{ task.client_name or "Unmatched" }}</span><form method="post" action="/tasks/{{ task.id }}/close" style="margin-top: 10px;"><button class="ghost" type="submit">Close task</button></form></div>{% endfor %}</div>
+            {% else %}
+            <div class="empty"><strong>No open follow-ups.</strong>New leads will create task queue items automatically.</div>
+            {% endif %}
           </div>
 
           <div class="panel">
             <h3>Review response drafts</h3>
-            <form method="post" action="/reviews" class="stack"><select name="client_id" required>{% for client in clients %}<option value="{{ client.id }}">{{ client.name }}</option>{% endfor %}</select><input name="rating" type="number" min="1" max="5" value="5"><textarea name="text" placeholder="Review or feedback text" required></textarea><button type="submit">Generate response</button></form>
+            <form method="post" action="/reviews" class="stack"><div class="field"><label for="review-client">Client</label><select id="review-client" name="client_id" required>{% for client in clients %}<option value="{{ client.id }}">{{ client.name }}</option>{% endfor %}</select></div><div class="field"><label for="review-rating">Rating</label><input id="review-rating" name="rating" type="number" min="1" max="5" value="5"></div><div class="field"><label for="review-text">Review text</label><textarea id="review-text" name="text" placeholder="Review or feedback text" required></textarea></div><button type="submit">Generate response</button></form>
           </div>
 
           <div class="panel">
             <h3>Audit log</h3>
-            <table><thead><tr><th>Action</th><th>Detail</th></tr></thead><tbody>{% for item in audit_logs %}<tr><td>{{ item.action }}<br><span class="muted">{{ item.actor }}</span></td><td>{{ item.detail }}<br><span class="muted">{{ item.created_at }}</span></td></tr>{% endfor %}</tbody></table>
+            {% if audit_logs %}
+            <div class="stack-list">{% for item in audit_logs[:8] %}<div class="mini-card"><strong>{{ item.action }}</strong><span class="muted">{{ item.detail }}</span><br><span class="muted">{{ item.actor }} - {{ item.created_at }}</span></div>{% endfor %}</div>
+            {% else %}
+            <div class="empty"><strong>No audit events yet.</strong>Operational actions will appear here.</div>
+            {% endif %}
           </div>
         </aside>
       </div>
