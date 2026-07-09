@@ -6,14 +6,33 @@ from pathlib import Path
 from typing import Iterable
 
 
-DEFAULT_DB_PATH = Path("data/nexuslead_demo.db")
+DEFAULT_DB_PATH = Path("data/nexuslead.db")
+
+
+def database_url() -> str | None:
+    return os.getenv("DATABASE_URL")
 
 
 def db_path() -> Path:
+    url = database_url()
+    if url and url.startswith("sqlite:///"):
+        return Path(url.replace("sqlite:///", "", 1))
     return Path(os.getenv("NEXUSLEAD_DB", str(DEFAULT_DB_PATH)))
 
 
+def database_summary() -> dict:
+    url = database_url()
+    if url and url.startswith(("postgres://", "postgresql://")):
+        return {"engine": "postgresql", "configured": True}
+    return {"engine": "sqlite", "configured": True, "path": str(db_path())}
+
+
 def connect() -> sqlite3.Connection:
+    url = database_url()
+    if url and url.startswith(("postgres://", "postgresql://")):
+        raise RuntimeError(
+            "DATABASE_URL is configured for PostgreSQL. Apply the documented migration plan before enabling the production driver."
+        )
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path)
@@ -31,6 +50,16 @@ def initialize_database(seed: bool = True) -> None:
     with connect() as connection:
         connection.executescript(
             """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS clients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -39,7 +68,10 @@ def initialize_database(seed: bool = True) -> None:
                 service_area TEXT NOT NULL,
                 min_budget INTEGER NOT NULL,
                 max_budget INTEGER NOT NULL,
-                status TEXT NOT NULL
+                contact_email TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS leads (
@@ -59,8 +91,23 @@ def initialize_database(seed: bool = True) -> None:
                 status TEXT NOT NULL,
                 notes TEXT NOT NULL DEFAULT '',
                 next_action TEXT NOT NULL DEFAULT '',
+                owner TEXT NOT NULL DEFAULT 'Unassigned',
+                attachment_name TEXT NOT NULL DEFAULT '',
+                attachment_path TEXT NOT NULL DEFAULT '',
+                attachment_type TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(matched_client_id) REFERENCES clients(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS lead_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lead_id INTEGER NOT NULL,
+                actor TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                note TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(lead_id) REFERENCES leads(id)
             );
 
             CREATE TABLE IF NOT EXISTS follow_up_tasks (
@@ -71,6 +118,7 @@ def initialize_database(seed: bool = True) -> None:
                 task TEXT NOT NULL,
                 owner TEXT NOT NULL,
                 status TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(lead_id) REFERENCES leads(id),
                 FOREIGN KEY(client_id) REFERENCES clients(id)
             );
@@ -84,31 +132,148 @@ def initialize_database(seed: bool = True) -> None:
                 sentiment TEXT NOT NULL,
                 response_draft TEXT NOT NULL,
                 attention_required INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(client_id) REFERENCES clients(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor TEXT NOT NULL,
+                action TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id INTEGER,
+                detail TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS lead_attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lead_id INTEGER NOT NULL,
+                file_name TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                storage_path TEXT NOT NULL,
+                uploaded_by TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(lead_id) REFERENCES leads(id)
             );
             """
         )
+        _ensure_column(connection, "users", "created_at", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "contact_email", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "notes", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "created_at", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "owner", "TEXT NOT NULL DEFAULT 'Unassigned'")
+        _ensure_column(connection, "leads", "attachment_name", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "attachment_path", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "attachment_type", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "updated_at", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "follow_up_tasks", "created_at", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "reviews", "created_at", "TEXT NOT NULL DEFAULT ''")
         if seed:
             _seed(connection)
         connection.commit()
 
 
+def _ensure_column(connection: sqlite3.Connection, table: str, column: str, declaration: str) -> None:
+    columns = [row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()]
+    if column not in columns:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+
 def _seed(connection: sqlite3.Connection) -> None:
+    users = [
+        (
+            "admin@nextrns.local",
+            "NextRNS Admin",
+            "admin",
+            "pbkdf2_sha256$200000$local-admin$5e4585e20b17aec7df3c62f081b85875e35cf918fa696bafc323375a2731e2c9",
+        ),
+        (
+            "manager@nextrns.local",
+            "Operations Manager",
+            "manager",
+            "pbkdf2_sha256$200000$local-manager$028fb7197ef6de45ab9ba05df9aa7b7c550f3d9c883f127f51576ac5109976f1",
+        ),
+        (
+            "agent@nextrns.local",
+            "Lead Operations Agent",
+            "agent",
+            "pbkdf2_sha256$200000$local-agent$b7856edb7f5f96ecdcfa31d4cdf1b79173b7343d8286a9c321dfdb41bacaf90e",
+        ),
+    ]
+    connection.executemany(
+        """
+        INSERT OR IGNORE INTO users (email, name, role, password_hash)
+        VALUES (?, ?, ?, ?)
+        """,
+        users,
+    )
+
     existing = connection.execute("SELECT COUNT(*) AS count FROM clients").fetchone()["count"]
     if existing:
         return
 
     clients = [
-        ("Northline Carpentry", "Carpenter", "Toronto", "Toronto, Scarborough, North York", 500, 12000, "active"),
-        ("Scarborough Realty Group", "Real estate agent", "Scarborough", "Scarborough, Toronto East", 0, 5000, "active"),
-        ("ShieldPoint Security", "Security company", "Mississauga", "GTA, Mississauga, Brampton", 1000, 25000, "active"),
-        ("Oak & Grain Cabinetry", "Custom cabinetry", "Toronto", "Toronto, Etobicoke, Vaughan", 1500, 30000, "active"),
-        ("BrightNest Cleaning", "Cleaning service", "Toronto", "Toronto, Scarborough, Markham", 250, 6000, "active"),
+        (
+            "Northline Carpentry",
+            "Carpenter",
+            "Toronto",
+            "Toronto, Scarborough, North York",
+            500,
+            12000,
+            "ops+northline@nextrns.local",
+            "Prefers residential repair and renovation leads with photos attached.",
+            "active",
+        ),
+        (
+            "Scarborough Realty Group",
+            "Real estate agent",
+            "Scarborough",
+            "Scarborough, Toronto East",
+            0,
+            5000,
+            "ops+realty@nextrns.local",
+            "Best fit is buyer and seller intake in Scarborough and Toronto East.",
+            "active",
+        ),
+        (
+            "ShieldPoint Security",
+            "Security company",
+            "Mississauga",
+            "GTA, Mississauga, Brampton",
+            1000,
+            25000,
+            "ops+shieldpoint@nextrns.local",
+            "Prioritize commercial and warehouse security requests.",
+            "active",
+        ),
+        (
+            "Oak & Grain Cabinetry",
+            "Custom cabinetry",
+            "Toronto",
+            "Toronto, Etobicoke, Vaughan",
+            1500,
+            30000,
+            "ops+oakgrain@nextrns.local",
+            "High-value kitchen remodel and custom storage projects.",
+            "active",
+        ),
+        (
+            "BrightNest Cleaning",
+            "Cleaning service",
+            "Toronto",
+            "Toronto, Scarborough, Markham",
+            250,
+            6000,
+            "ops+brightnest@nextrns.local",
+            "Recurring commercial and property management cleaning leads.",
+            "active",
+        ),
     ]
     connection.executemany(
         """
-        INSERT INTO clients (name, category, city, service_area, min_budget, max_budget, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO clients (name, category, city, service_area, min_budget, max_budget, contact_email, notes, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         clients,
     )

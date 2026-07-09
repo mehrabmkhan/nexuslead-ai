@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import csv
+import hashlib
+import hmac
+import os
 from collections import Counter
 from datetime import date, timedelta
 from io import StringIO
@@ -7,61 +11,151 @@ from typing import Iterable
 
 import pandas as pd
 
-from .database import connect
+from .database import connect, database_summary
+from .notifications import notify_outreach_approved
 
 
-DEMO_SIGNALS = [
+PIPELINE_STATUSES = ["New", "Qualified", "Contacted", "Follow-up", "Converted", "Not Fit"]
+ROLES = ["admin", "manager", "agent"]
+
+INTAKE_RECORDS = [
     {
-        "source": "Demo community post",
-        "text": "Looking for carpenter in Toronto for built-in shelves this month",
-        "category": "Carpenter",
-        "city": "Toronto",
-        "budget": 4500,
-    },
-    {
-        "source": "Demo buyer request",
-        "text": "Need real estate agent in Scarborough for first-time buyer",
-        "category": "Real estate agent",
-        "city": "Scarborough",
-        "budget": 1200,
-    },
-    {
-        "source": "Demo operations request",
-        "text": "Need security company for warehouse in Mississauga",
+        "source": "Manual intake",
+        "context": "Facilities manager requested warehouse security coverage in Mississauga this month",
         "category": "Security company",
         "city": "Mississauga",
         "budget": 9000,
+        "owner": "Lead Operations Agent",
     },
     {
-        "source": "Demo renovation forum",
-        "text": "Need custom cabinetry quote in Etobicoke for kitchen remodel",
+        "source": "CRM import",
+        "context": "Property manager needs recurring cleaning service near Markham starting next week",
+        "category": "Cleaning service",
+        "city": "Markham",
+        "budget": 1800,
+        "owner": "Lead Operations Agent",
+    },
+    {
+        "source": "Google Sheets import",
+        "context": "Homeowner requested custom cabinetry quote in Etobicoke for kitchen remodel",
         "category": "Custom cabinetry",
         "city": "Etobicoke",
         "budget": 18000,
+        "owner": "Lead Operations Agent",
     },
     {
-        "source": "Demo local business board",
-        "text": "Office needs cleaning service near Markham starting next week",
-        "category": "Cleaning service",
-        "city": "Markham",
-        "budget": 1500,
-    },
-    {
-        "source": "Demo urgent request",
-        "text": "Urgent carpenter needed in Scarborough after water damage",
+        "source": "Approved directory",
+        "context": "Retail operator needs a carpenter in Scarborough after water damage",
         "category": "Carpenter",
         "city": "Scarborough",
         "budget": 6500,
+        "owner": "Lead Operations Agent",
+    },
+    {
+        "source": "Manual intake",
+        "context": "First-time buyer asked for a real estate agent in Scarborough",
+        "category": "Real estate agent",
+        "city": "Scarborough",
+        "budget": 1200,
+        "owner": "Lead Operations Agent",
     },
 ]
 
-
 TONE_TEMPLATES = {
-    "professional": "Hello, we saw your request about {category_lower} support in {city}. One of our reviewed client teams may be a fit. Would you like a short introduction?",
+    "professional": "Hello, we reviewed your request for {category_lower} support in {city}. A NextRNS client may be a fit. Would you like us to prepare a short introduction for approval?",
     "friendly": "Hi, it sounds like you are looking for help with {category_lower} work in {city}. We can suggest a vetted local option if you are still looking.",
     "short": "Hi, we may know a suitable {category_lower} option in {city}. Would you like an introduction?",
-    "formal": "Hello, based on your request for {category_lower} services in {city}, we can prepare a reviewed provider introduction for your approval.",
+    "formal": "Hello, based on your request for {category_lower} services in {city}, NextRNS can prepare a reviewed provider introduction for approval.",
 }
+
+
+def hash_password(password: str, salt: str | None = None) -> str:
+    salt = salt or os.urandom(12).hex()
+    iterations = 200_000
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), iterations).hex()
+    return f"pbkdf2_sha256${iterations}${salt}${digest}"
+
+
+def verify_password(password: str, encoded: str) -> bool:
+    try:
+        algorithm, iterations, salt, digest = encoded.split("$", 3)
+    except ValueError:
+        return False
+    if algorithm != "pbkdf2_sha256":
+        return False
+    candidate = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), int(iterations)).hex()
+    return hmac.compare_digest(candidate, digest)
+
+
+def row(query: str, params: Iterable = ()) -> dict | None:
+    with connect() as connection:
+        found = connection.execute(query, tuple(params)).fetchone()
+        return dict(found) if found else None
+
+
+def rows(query: str, params: Iterable = ()) -> list[dict]:
+    with connect() as connection:
+        return [dict(item) for item in connection.execute(query, tuple(params)).fetchall()]
+
+
+def audit_log(actor: str, action: str, entity_type: str, entity_id: int | None, detail: str) -> None:
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO audit_logs (actor, action, entity_type, entity_id, detail)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (actor, action, entity_type, entity_id, detail),
+        )
+        connection.commit()
+
+
+def authenticate(email: str, password: str) -> dict | None:
+    user = row("SELECT * FROM users WHERE lower(email) = lower(?) AND active = 1", (email.strip(),))
+    if user and verify_password(password, user["password_hash"]):
+        audit_log(user["name"], "auth.login", "user", user["id"], "User signed in")
+        return user
+    return None
+
+
+def list_users(active_only: bool = True) -> list[dict]:
+    where = "WHERE active = 1" if active_only else ""
+    return rows(f"SELECT id, email, name, role, active, created_at FROM users {where} ORDER BY role, name")
+
+
+def create_user(payload: dict, actor: str) -> int:
+    role = payload["role"].strip().lower()
+    if role not in ROLES:
+        raise ValueError("Unsupported role")
+    with connect() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO users (email, name, role, password_hash, active)
+            VALUES (?, ?, ?, ?, 1)
+            """,
+            (
+                payload["email"].strip().lower(),
+                payload["name"].strip(),
+                role,
+                hash_password(payload.get("password") or "changeme123"),
+            ),
+        )
+        user_id = int(cursor.lastrowid)
+        connection.commit()
+    audit_log(actor, "user.created", "user", user_id, f"Created {role} user {payload['email']}")
+    return user_id
+
+
+def can_manage_clients(user: dict) -> bool:
+    return user["role"] == "admin"
+
+
+def can_review_leads(user: dict) -> bool:
+    return user["role"] in {"admin", "manager"}
+
+
+def can_export(user: dict, kind: str) -> bool:
+    return user["role"] in {"admin", "manager"} or (user["role"] == "agent" and kind == "tasks")
 
 
 def classify_priority(urgency: int, fit: int) -> str:
@@ -76,9 +170,9 @@ def classify_priority(urgency: int, fit: int) -> str:
 def urgency_score(text: str) -> int:
     lowered = text.lower()
     score = 5
-    if any(word in lowered for word in ["urgent", "asap", "today", "this week"]):
-        score += 4
-    if any(word in lowered for word in ["need", "looking for", "quote"]):
+    if any(word in lowered for word in ["urgent", "asap", "today", "this week", "this month"]):
+        score += 3
+    if any(word in lowered for word in ["need", "requested", "looking for", "quote", "coverage"]):
         score += 2
     return min(score, 10)
 
@@ -97,14 +191,12 @@ def client_fit_score(category: str, city: str, budget: int, client: dict | None)
 
 
 def find_client(category: str, city: str, budget: int) -> dict | None:
-    with connect() as connection:
-        rows = [dict(row) for row in connection.execute("SELECT * FROM clients WHERE status = 'active'").fetchall()]
-    ranked = sorted(
-        rows,
-        key=lambda row: client_fit_score(category, city, budget, row),
-        reverse=True,
-    )
-    return ranked[0] if ranked else None
+    candidates = rows("SELECT * FROM clients WHERE status = 'active'")
+    ranked = sorted(candidates, key=lambda item: client_fit_score(category, city, budget, item), reverse=True)
+    if not ranked:
+        return None
+    best = ranked[0]
+    return best if client_fit_score(category, city, budget, best) >= 5 else None
 
 
 def build_outreach(category: str, city: str, tone: str = "professional") -> str:
@@ -112,99 +204,272 @@ def build_outreach(category: str, city: str, tone: str = "professional") -> str:
     return template.format(category_lower=category.lower(), city=city)
 
 
-def discover_demo_leads() -> list[dict]:
-    created: list[dict] = []
+def score_lead(category: str, city: str, budget: int, context: str) -> dict:
+    client = find_client(category, city, budget)
+    urgency = urgency_score(context)
+    fit = client_fit_score(category, city, budget, client)
+    priority = classify_priority(urgency, fit)
+    explanation = (
+        f"{priority} priority: urgency {urgency}/10, client fit {fit}/10, "
+        f"category {category}, market {city}, budget ${budget:,}."
+    )
+    return {"client": client, "urgency": urgency, "fit": fit, "priority": priority, "explanation": explanation}
+
+
+def create_lead(payload: dict, actor: str = "System") -> int:
+    category = payload["category"].strip()
+    city = payload["city"].strip()
+    context = payload["context"].strip()
+    budget = int(payload.get("budget") or 0)
+    scored = score_lead(category, city, budget, context)
+    client = scored["client"]
+    status = payload.get("status") or ("Qualified" if scored["priority"] in {"High", "Medium"} else "New")
+    owner = payload.get("owner") or "Unassigned"
+    next_action = payload.get("next_action") or "Review outreach draft"
     with connect() as connection:
-        for signal in DEMO_SIGNALS:
-            existing = connection.execute("SELECT id FROM leads WHERE context = ?", (signal["text"],)).fetchone()
-            if existing:
-                continue
-            client = find_client(signal["category"], signal["city"], signal["budget"])
-            urgency = urgency_score(signal["text"])
-            fit = client_fit_score(signal["category"], signal["city"], signal["budget"], client)
-            priority = classify_priority(urgency, fit)
-            explanation = (
-                f"Priority is {priority} because urgency scored {urgency}/10 and client fit scored {fit}/10 "
-                f"for {signal['category']} in {signal['city']}."
+        cursor = connection.execute(
+            """
+            INSERT INTO leads (
+                source, category, city, context, urgency, budget, client_fit, priority,
+                explanation, matched_client_id, outreach_status, outreach_draft, status,
+                notes, next_action, owner, attachment_name, attachment_path, attachment_type
             )
-            draft = build_outreach(signal["category"], signal["city"])
-            cursor = connection.execute(
-                """
-                INSERT INTO leads (
-                    source, category, city, context, urgency, budget, client_fit, priority,
-                    explanation, matched_client_id, outreach_status, outreach_draft, status,
-                    notes, next_action
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    signal["source"],
-                    signal["category"],
-                    signal["city"],
-                    signal["text"],
-                    urgency,
-                    signal["budget"],
-                    fit,
-                    priority,
-                    explanation,
-                    client["id"] if client else None,
-                    "Drafted",
-                    draft,
-                    "Qualified" if priority in {"High", "Medium"} else "New",
-                    "Synthetic demo lead. Human review required before outreach.",
-                    "Review outreach draft",
-                ),
-            )
-            lead_id = cursor.lastrowid
-            connection.execute(
-                """
-                INSERT INTO follow_up_tasks (lead_id, client_id, due_date, task, owner, status)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    lead_id,
-                    client["id"] if client else None,
-                    (date.today() + timedelta(days=1)).isoformat(),
-                    "Review lead context and approve or reject outreach draft",
-                    "BPO Agent",
-                    "Open",
-                ),
-            )
-            created.append({"id": lead_id, **signal})
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload.get("source", "Manual intake"),
+                category,
+                city,
+                context,
+                scored["urgency"],
+                budget,
+                scored["fit"],
+                scored["priority"],
+                scored["explanation"],
+                client["id"] if client else None,
+                "Needs approval",
+                build_outreach(category, city, payload.get("tone", "professional")),
+                status,
+                payload.get("notes", ""),
+                next_action,
+                owner,
+                payload.get("attachment_name", ""),
+                payload.get("attachment_path", ""),
+                payload.get("attachment_type", ""),
+            ),
+        )
+        lead_id = int(cursor.lastrowid)
+        due_date = payload.get("due_date") or (date.today() + timedelta(days=1)).isoformat()
+        connection.execute(
+            """
+            INSERT INTO follow_up_tasks (lead_id, client_id, due_date, task, owner, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (lead_id, client["id"] if client else None, due_date, next_action, owner, "Open"),
+        )
+        connection.execute(
+            "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+            (lead_id, actor, "created", f"Lead added from {payload.get('source', 'Manual intake')}.")
+        )
+        connection.execute(
+            """
+            INSERT INTO audit_logs (actor, action, entity_type, entity_id, detail)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (actor, "lead.created", "lead", lead_id, f"Created {category} lead in {city}"),
+        )
         connection.commit()
+    return lead_id
+
+
+def seed_operational_records() -> list[int]:
+    created: list[int] = []
+    for item in INTAKE_RECORDS:
+        if row("SELECT id FROM leads WHERE context = ?", (item["context"],)):
+            continue
+        created.append(create_lead(item, actor="Seed"))
     return created
 
 
-def seed_reviews() -> None:
-    reviews = [
-        (1, "Demo review board", 5, "Great carpentry work and clear communication."),
-        (2, "Demo review board", 4, "Helpful agent and responsive follow-up."),
-        (3, "Demo review board", 2, "Slow response on a weekend security issue."),
-        (4, "Demo review board", 5, "Excellent cabinet finish and installation."),
-        (5, "Demo review board", 3, "Cleaning was good but scheduling was confusing."),
-    ]
+def import_leads_csv(csv_text: str, actor: str) -> dict:
+    reader = csv.DictReader(StringIO(csv_text))
+    required = {"source", "category", "city", "context", "budget"}
+    if not reader.fieldnames or not required.issubset({name.strip() for name in reader.fieldnames}):
+        return {"created": 0, "errors": ["CSV must include source, category, city, context, budget columns."]}
+    created = 0
+    errors: list[str] = []
+    for index, item in enumerate(reader, start=2):
+        try:
+            create_lead(item, actor=actor)
+            created += 1
+        except Exception as exc:  # pragma: no cover - defensive user input path
+            errors.append(f"Line {index}: {exc}")
+    return {"created": created, "errors": errors}
+
+
+def create_client(payload: dict, actor: str = "System") -> int:
     with connect() as connection:
-        existing = connection.execute("SELECT COUNT(*) AS count FROM reviews").fetchone()["count"]
-        if existing:
-            return
-        for client_id, source, rating, text in reviews:
-            sentiment = classify_sentiment(rating, text)
-            connection.execute(
-                """
-                INSERT INTO reviews (client_id, source, rating, text, sentiment, response_draft, attention_required)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    client_id,
-                    source,
-                    rating,
-                    text,
-                    sentiment,
-                    draft_review_response(sentiment),
-                    1 if sentiment == "negative" else 0,
-                ),
-            )
+        cursor = connection.execute(
+            """
+            INSERT INTO clients (name, category, city, service_area, min_budget, max_budget, contact_email, notes, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["name"].strip(),
+                payload["category"].strip(),
+                payload["city"].strip(),
+                payload["service_area"].strip(),
+                int(payload.get("min_budget") or 0),
+                int(payload.get("max_budget") or 0),
+                payload.get("contact_email", "").strip(),
+                payload.get("notes", "").strip(),
+                payload.get("status", "active"),
+            ),
+        )
+        client_id = int(cursor.lastrowid)
+        connection.execute(
+            "INSERT INTO audit_logs (actor, action, entity_type, entity_id, detail) VALUES (?, ?, ?, ?, ?)",
+            (actor, "client.created", "client", client_id, f"Created client {payload['name']}"),
+        )
         connection.commit()
+    return client_id
+
+
+def update_lead_status(lead_id: int, status: str, note: str, actor: str) -> None:
+    if status not in PIPELINE_STATUSES:
+        raise ValueError("Unsupported lead status")
+    with connect() as connection:
+        connection.execute(
+            "UPDATE leads SET status = ?, notes = trim(notes || char(10) || ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, note, lead_id),
+        )
+        connection.execute(
+            "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+            (lead_id, actor, "status", f"{status}: {note}" if note else f"Status changed to {status}"),
+        )
+        connection.execute(
+            "INSERT INTO audit_logs (actor, action, entity_type, entity_id, detail) VALUES (?, ?, ?, ?, ?)",
+            (actor, "lead.status_changed", "lead", lead_id, f"Status changed to {status}"),
+        )
+        connection.commit()
+
+
+def assign_lead(lead_id: int, owner: str, actor: str) -> None:
+    with connect() as connection:
+        connection.execute("UPDATE leads SET owner = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (owner, lead_id))
+        connection.execute(
+            "UPDATE follow_up_tasks SET owner = ? WHERE lead_id = ? AND status != 'Closed'",
+            (owner, lead_id),
+        )
+        connection.execute(
+            "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+            (lead_id, actor, "assignment", f"Assigned to {owner}"),
+        )
+        connection.execute(
+            "INSERT INTO audit_logs (actor, action, entity_type, entity_id, detail) VALUES (?, ?, ?, ?, ?)",
+            (actor, "lead.assigned", "lead", lead_id, f"Assigned to {owner}"),
+        )
+        connection.commit()
+
+
+def approve_outreach(lead_id: int, actor: str) -> None:
+    lead = row(
+        """
+        SELECT leads.*, clients.contact_email, clients.name AS client_name
+        FROM leads LEFT JOIN clients ON clients.id = leads.matched_client_id
+        WHERE leads.id = ?
+        """,
+        (lead_id,),
+    )
+    with connect() as connection:
+        connection.execute(
+            "UPDATE leads SET outreach_status = 'Approved', status = 'Contacted', next_action = 'Send through approved channel', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (lead_id,),
+        )
+        connection.execute(
+            "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+            (lead_id, actor, "approval", "Outreach draft approved for use in an approved workflow."),
+        )
+        connection.execute(
+            "INSERT INTO audit_logs (actor, action, entity_type, entity_id, detail) VALUES (?, ?, ?, ?, ?)",
+            (actor, "outreach.approved", "lead", lead_id, "Human-reviewed draft approved"),
+        )
+        connection.commit()
+    if lead and lead.get("contact_email"):
+        notify_outreach_approved(lead["contact_email"], f"{lead['category']} lead in {lead['city']}")
+
+
+def attach_file_metadata(lead_id: int, file_name: str, content_type: str, storage_path: str, actor: str) -> int:
+    with connect() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO lead_attachments (lead_id, file_name, content_type, storage_path, uploaded_by)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (lead_id, file_name, content_type, storage_path, actor),
+        )
+        attachment_id = int(cursor.lastrowid)
+        connection.execute(
+            """
+            UPDATE leads SET attachment_name = ?, attachment_path = ?, attachment_type = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (file_name, storage_path, content_type, lead_id),
+        )
+        connection.execute(
+            "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+            (lead_id, actor, "attachment", f"Attached metadata for {file_name}"),
+        )
+        connection.execute(
+            "INSERT INTO audit_logs (actor, action, entity_type, entity_id, detail) VALUES (?, ?, ?, ?, ?)",
+            (actor, "lead.attachment_added", "lead", lead_id, file_name),
+        )
+        connection.commit()
+    return attachment_id
+
+
+def close_task(task_id: int, actor: str) -> None:
+    with connect() as connection:
+        task = connection.execute("SELECT lead_id FROM follow_up_tasks WHERE id = ?", (task_id,)).fetchone()
+        connection.execute("UPDATE follow_up_tasks SET status = 'Closed' WHERE id = ?", (task_id,))
+        if task:
+            connection.execute(
+                "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+                (task["lead_id"], actor, "task", f"Closed task {task_id}"),
+            )
+        connection.execute(
+            "INSERT INTO audit_logs (actor, action, entity_type, entity_id, detail) VALUES (?, ?, ?, ?, ?)",
+            (actor, "task.closed", "task", task_id, "Follow-up task closed"),
+        )
+        connection.commit()
+
+
+def create_review_response(client_id: int, rating: int, text: str, source: str = "Client feedback") -> int:
+    sentiment = classify_sentiment(rating, text)
+    with connect() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO reviews (client_id, source, rating, text, sentiment, response_draft, attention_required)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (client_id, source, rating, text, sentiment, draft_review_response(sentiment), 1 if sentiment == "negative" else 0),
+        )
+        connection.commit()
+        return int(cursor.lastrowid)
+
+
+def seed_reviews() -> None:
+    if row("SELECT id FROM reviews LIMIT 1"):
+        return
+    reviews = [
+        (1, "Client feedback", 5, "Great carpentry work and clear communication."),
+        (2, "Client feedback", 4, "Helpful agent and responsive follow-up."),
+        (3, "Client feedback", 2, "Slow response on a weekend security issue."),
+        (4, "Client feedback", 5, "Excellent cabinet finish and installation."),
+        (5, "Client feedback", 3, "Cleaning was good but scheduling was confusing."),
+    ]
+    for client_id, source, rating, text in reviews:
+        create_review_response(client_id, rating, text, source)
 
 
 def classify_sentiment(rating: int, text: str) -> str:
@@ -218,20 +483,18 @@ def classify_sentiment(rating: int, text: str) -> str:
 
 def draft_review_response(sentiment: str) -> str:
     if sentiment == "negative":
-        return "Thank you for the feedback. A team member should review this and follow up with a specific resolution."
+        return "Thank you for the feedback. A NextRNS team member will review the details and follow up with a specific resolution."
     if sentiment == "neutral":
-        return "Thank you for sharing this. We will review the details and look for ways to improve the experience."
+        return "Thank you for sharing this. We will review the experience and identify the next improvement step."
     return "Thank you for the kind feedback. We appreciate the opportunity to support your project."
 
 
-def rows(query: str, params: Iterable = ()) -> list[dict]:
-    with connect() as connection:
-        return [dict(row) for row in connection.execute(query, tuple(params)).fetchall()]
-
-
-def get_dashboard_data(filters: dict[str, str | None]) -> dict:
+def _lead_where(filters: dict[str, str | None], user: dict | None = None) -> tuple[str, list[str]]:
     where = []
     params: list[str] = []
+    if user and user["role"] == "agent":
+        where.append("(leads.owner = ? OR leads.owner = 'Unassigned')")
+        params.append(user["name"])
     if filters.get("client_id"):
         where.append("leads.matched_client_id = ?")
         params.append(str(filters["client_id"]))
@@ -244,10 +507,17 @@ def get_dashboard_data(filters: dict[str, str | None]) -> dict:
     if filters.get("priority"):
         where.append("leads.priority = ?")
         params.append(str(filters["priority"]))
-    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    if filters.get("status"):
+        where.append("leads.status = ?")
+        params.append(str(filters["status"]))
+    return ("WHERE " + " AND ".join(where) if where else "", params)
+
+
+def get_dashboard_data(filters: dict[str, str | None], user: dict | None = None) -> dict:
+    where_sql, params = _lead_where(filters, user)
     lead_rows = rows(
         f"""
-        SELECT leads.*, clients.name AS client_name
+        SELECT leads.*, clients.name AS client_name, clients.contact_email AS client_contact_email
         FROM leads
         LEFT JOIN clients ON clients.id = leads.matched_client_id
         {where_sql}
@@ -255,17 +525,25 @@ def get_dashboard_data(filters: dict[str, str | None]) -> dict:
         """,
         params,
     )
+    task_where = "WHERE follow_up_tasks.status != 'Closed'"
+    task_params: list[str] = []
+    if user and user["role"] == "agent":
+        task_where += " AND follow_up_tasks.owner = ?"
+        task_params.append(user["name"])
     return {
         "leads": lead_rows,
         "clients": rows("SELECT * FROM clients ORDER BY name"),
+        "users": list_users(),
         "tasks": rows(
-            """
-            SELECT follow_up_tasks.*, leads.context, clients.name AS client_name
+            f"""
+            SELECT follow_up_tasks.*, leads.context, leads.priority, clients.name AS client_name
             FROM follow_up_tasks
             LEFT JOIN leads ON leads.id = follow_up_tasks.lead_id
             LEFT JOIN clients ON clients.id = follow_up_tasks.client_id
+            {task_where}
             ORDER BY due_date ASC
-            """
+            """,
+            task_params,
         ),
         "reviews": rows(
             """
@@ -275,78 +553,110 @@ def get_dashboard_data(filters: dict[str, str | None]) -> dict:
             ORDER BY attention_required DESC, rating ASC
             """
         ),
-        "analytics": analytics(),
+        "lead_events": rows(
+            """
+            SELECT lead_events.*, leads.category, leads.city
+            FROM lead_events
+            LEFT JOIN leads ON leads.id = lead_events.lead_id
+            ORDER BY lead_events.created_at DESC
+            LIMIT 20
+            """
+        ),
+        "audit_logs": rows("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 20"),
+        "analytics": analytics(user),
+        "pipeline_statuses": PIPELINE_STATUSES,
+        "roles": ROLES,
     }
 
 
-def analytics() -> dict:
-    lead_rows = rows("SELECT * FROM leads")
-    status_counts = Counter(row["status"] for row in lead_rows)
-    category_counts = Counter(row["category"] for row in lead_rows)
-    city_counts = Counter(row["city"] for row in lead_rows)
-    high_priority = [row for row in lead_rows if row["priority"] == "High"]
-    tasks = rows("SELECT * FROM follow_up_tasks WHERE status != 'Closed'")
+def analytics(user: dict | None = None) -> dict:
+    if user and user["role"] == "agent":
+        lead_rows = rows("SELECT * FROM leads WHERE owner = ? OR owner = 'Unassigned'", (user["name"],))
+        tasks = rows("SELECT * FROM follow_up_tasks WHERE status != 'Closed' AND owner = ?", (user["name"],))
+    else:
+        lead_rows = rows("SELECT * FROM leads")
+        tasks = rows("SELECT * FROM follow_up_tasks WHERE status != 'Closed'")
+    status_counts = Counter(item["status"] for item in lead_rows)
+    category_counts = Counter(item["category"] for item in lead_rows)
+    city_counts = Counter(item["city"] for item in lead_rows)
+    high_priority = [item for item in lead_rows if item["priority"] == "High"]
+    converted = status_counts.get("Converted", 0)
+    conversion_rate = round((converted / len(lead_rows)) * 100, 1) if lead_rows else 0
     return {
         "daily_lead_count": len(lead_rows),
         "leads_by_category": dict(category_counts),
         "leads_by_city": dict(city_counts),
         "high_priority_leads": len(high_priority),
         "follow_up_queue": len(tasks),
-        "estimated_opportunity_value": sum(int(row["budget"]) for row in lead_rows),
+        "estimated_opportunity_value": sum(int(item["budget"]) for item in lead_rows),
         "conversion_status_summary": dict(status_counts),
+        "conversion_rate": conversion_rate,
+        "database": database_summary(),
     }
 
 
-def dataframe_for(query: str) -> pd.DataFrame:
-    return pd.DataFrame(rows(query))
+def dataframe_for(query: str, params: Iterable = ()) -> pd.DataFrame:
+    return pd.DataFrame(rows(query, params))
 
 
-def export_csv(kind: str) -> str:
+def export_csv(kind: str, user: dict | None = None) -> str:
+    audit_actor = user["name"] if user else "System"
     if kind == "tasks":
+        where = ""
+        params: list[str] = []
+        if user and user["role"] == "agent":
+            where = "WHERE follow_up_tasks.owner = ?"
+            params.append(user["name"])
         frame = dataframe_for(
-            """
+            f"""
             SELECT follow_up_tasks.id, follow_up_tasks.due_date, follow_up_tasks.task,
                    follow_up_tasks.owner, follow_up_tasks.status, leads.context, clients.name AS client_name
             FROM follow_up_tasks
             LEFT JOIN leads ON leads.id = follow_up_tasks.lead_id
             LEFT JOIN clients ON clients.id = follow_up_tasks.client_id
+            {where}
             ORDER BY follow_up_tasks.due_date
-            """
+            """,
+            params,
         )
     else:
         frame = dataframe_for(
             """
             SELECT leads.id, leads.source, leads.category, leads.city, leads.context, leads.urgency,
-                   leads.client_fit, leads.priority, leads.status, clients.name AS client_name,
-                   leads.outreach_status, leads.next_action
+                   leads.client_fit, leads.priority, leads.status, leads.owner, clients.name AS client_name,
+                   leads.outreach_status, leads.outreach_draft, leads.next_action, leads.attachment_name
             FROM leads
             LEFT JOIN clients ON clients.id = leads.matched_client_id
             ORDER BY leads.priority
             """
         )
+    audit_log(audit_actor, "export.generated", "export", None, f"Generated {kind} CSV")
     buffer = StringIO()
     frame.to_csv(buffer, index=False)
     return buffer.getvalue()
 
 
-def daily_report() -> str:
-    data = analytics()
+def google_sheets_csv(user: dict | None = None) -> str:
+    return export_csv("leads", user)
+
+
+def daily_report(user: dict | None = None) -> str:
+    data = analytics(user)
     lines = [
         "# NexusLead AI daily report",
-        "",
-        "Synthetic demo data only. Outreach remains human-reviewed.",
         "",
         f"- Daily lead count: {data['daily_lead_count']}",
         f"- High priority leads: {data['high_priority_leads']}",
         f"- Follow-up queue: {data['follow_up_queue']}",
         f"- Estimated opportunity value: ${data['estimated_opportunity_value']:,}",
+        f"- Conversion rate: {data['conversion_rate']}%",
         "",
         "## Leads by category",
         "",
     ]
     for category, count in data["leads_by_category"].items():
         lines.append(f"- {category}: {count}")
-    lines.extend(["", "## Conversion status summary", ""])
+    lines.extend(["", "## Pipeline status", ""])
     for status, count in data["conversion_status_summary"].items():
         lines.append(f"- {status}: {count}")
     return "\n".join(lines)

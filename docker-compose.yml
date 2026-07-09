@@ -4,7 +4,10 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - NEXUSLEAD_DB=/app/data/nexuslead_demo.db
+      - NEXUSLEAD_DB=/app/data/nexuslead.db
+      - NEXUSLEAD_SESSION_SECRET=local-docker-secret
+      - NEXUSLEAD_UPLOAD_DIR=/app/uploads
     volumes:
       - ./data:/app/data
       - ./reports:/app/reports
+      - ./uploads:/app/uploads

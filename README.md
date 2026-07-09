@@ -1,54 +1,38 @@
 # NexusLead AI
 
-NexusLead AI is an intelligent B2B lead operations platform for BPO-style sales teams. It helps agents discover synthetic demand signals, qualify leads, match them to client profiles, draft outreach for human review, manage follow-up tasks, and monitor simulated reviews.
+NexusLead AI is an internal B2B lead operations platform for NextRNS-style BPO teams. It gives admins, managers, and lead generation specialists a daily workspace for lead intake, qualification, client matching, outreach draft review, follow-up tasks, reporting, and exports.
 
-The product scenario is based on a NextRNS-style sales operations team serving local businesses such as carpentry, real estate, security services, home services, cleaning, and custom cabinetry.
+Live URL: add your Render/Fly deployment URL here after publishing.
 
-## Why It Was Built
+## Product Scope
 
-BPO sales teams often work across multiple client types at once. The operational challenge is not just finding a lead; it is deciding whether the lead is relevant, which client should receive it, what the next action should be, and how to keep outreach compliant and human-reviewed.
+NexusLead AI is designed for approved operational inputs:
 
-NexusLead AI demonstrates that workflow with synthetic data and a small working FastAPI application.
+- Manual lead entry
+- CSV upload
+- Google Sheets-ready CSV export/import
+- Approved CRM imports
+- Public business directories where terms allow access
+- Official APIs where available
+- n8n workflows using approved integrations
 
-## Business Problem
+Outreach remains human-reviewed before sending. The app does not implement auto-comment spam, ban-evasion, scraping bypasses, or automated outbound sending.
 
-Lead operations teams need a repeatable process for:
+## Core Capabilities
 
-- collecting approved lead sources
-- qualifying urgency and fit
-- matching leads to the right client
-- drafting outreach without auto-sending
-- tracking follow-ups and conversion status
-- giving managers a daily operating view
-
-This demo uses local synthetic records only. It does not scrape websites, bypass platform limits, collect real personal data, or auto-comment on posts.
-
-## Product Features
-
-- Lead discovery simulation from synthetic demand signals
-- AI-style lead qualification using deterministic scoring rules
-- Client matching by category, city, service area, and budget fit
-- Human-approved outreach drafts with professional, friendly, short, and formal tones
-- CRM-style lead, client, and follow-up task tables
-- BPO agent dashboard with filters for client, city, category, and priority
-- Simulated review monitoring with sentiment classification and response drafts
-- Analytics for lead count, category, city, priority, follow-up queue, opportunity value, and status summary
-- CSV exports for leads and task lists
-- Daily Markdown-style operating report
-- n8n expansion plan for future approved integrations
-
-## Architecture
-
-```mermaid
-flowchart LR
-    S[Synthetic demand signals] --> Q[AI qualification rules]
-    Q --> M[Client matching engine]
-    M --> C[SQLite CRM pipeline]
-    C --> D[BPO agent dashboard]
-    C --> E[CSV exports and daily report]
-    R[Simulated reviews] --> D
-    D --> H[Human-approved outreach]
-```
+- Login with Admin, Manager, and Agent roles
+- Admin controls for clients, users, exports, analytics, and job readiness
+- Manager workflow for lead review, draft approval, and agent assignment
+- Agent workflow for lead creation, status updates, notes, attachments, and assigned task export
+- Multi-tenant client profiles with business type, service area, city, budget range, contact email, and notes
+- Deterministic lead scoring, priority classification, and client matching
+- CSV import, Google Sheets-ready CSV export, and follow-up task CSV export
+- Outreach draft generation with human approval status
+- Notes/history, audit logging, task due dates, and file attachment metadata
+- Mock email notification service for local development
+- Background job registry ready for scheduled checks, reports, and reminders
+- Health and metrics endpoints for monitoring
+- FastAPI Swagger/OpenAPI docs at `/docs`
 
 ## Local Setup
 
@@ -62,80 +46,97 @@ uvicorn app.main:app --reload
 Open:
 
 ```text
-http://localhost:8000/dashboard
+http://localhost:8000/login
 ```
 
-## Docker Setup
+Default local users:
+
+```text
+Admin: admin@nextrns.local / admin123
+Manager: manager@nextrns.local / manager123
+Agent: agent@nextrns.local / agent123
+```
+
+## Useful Routes
+
+- `/login`
+- `/dashboard`
+- `/docs`
+- `/api/auth/me`
+- `/api/leads`
+- `/api/clients`
+- `/api/tasks`
+- `/api/analytics`
+- `/export/leads.csv`
+- `/export/tasks.csv`
+- `/export/google-sheets.csv`
+- `/reports/daily`
+- `/health`
+- `/metrics`
+- `/jobs/status`
+
+## Environment Variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `NEXUSLEAD_DB` | No | SQLite database path. Defaults to `data/nexuslead.db`. |
+| `DATABASE_URL` | Production | PostgreSQL connection string for hosted deployments after migrations are applied. |
+| `NEXUSLEAD_SESSION_SECRET` | Production | Secret used to sign login sessions. |
+| `NEXUSLEAD_UPLOAD_DIR` | No | Local upload storage path. Defaults to `uploads`. |
+| `NEXUSLEAD_EMAIL_PROVIDER` | No | `console` locally; future providers can map to SendGrid or AWS SES. |
+| `PORT` | Hosting | Port supplied by Render, Fly.io, or another host. |
+
+## Database And Migrations
+
+SQLite is the local development database. The app initializes required tables on startup for the MVP.
+
+For production PostgreSQL, use a hosted database such as Neon, Supabase, or Render PostgreSQL, set `DATABASE_URL`, and apply a real migration tool before enabling a production driver. Recommended next step:
+
+```bash
+python -m pip install alembic psycopg[binary]
+alembic init migrations
+```
+
+Then translate the schema in `app/database.py` into Alembic migration files. See [docs/operations.md](docs/operations.md) for the production migration path.
+
+## Docker
 
 ```bash
 docker compose up --build
 ```
 
-Open:
+Open `http://localhost:8000/login`.
 
-```text
-http://localhost:8000/dashboard
+## Production Start Command
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
-## Demo Workflow
+On Windows PowerShell locally, use `$env:PORT=8000` or run the explicit port command from the local setup.
 
-1. Start the app.
-2. Open the dashboard.
-3. Review high-priority synthetic leads.
-4. Check the matched client and scoring explanation.
-5. Review the suggested outreach draft.
-6. Export leads or agent tasks as CSV.
-7. Open `/reports/daily` for the daily operating summary.
+## Live Demo Deployment
 
-Useful endpoints:
+Render is the simplest fit because NexusLead AI is a server-rendered FastAPI app with sessions, uploads, SQLite local mode, and API routes. Netlify/Vercel are better for separate static frontends; they are not the best primary host for this server-rendered FastAPI MVP.
 
-- `/dashboard`
-- `/api/leads`
-- `/api/analytics`
-- `/export/leads.csv`
-- `/export/tasks.csv`
-- `/reports/daily`
-- `/demo/discover`
+1. Create a Render Web Service from this repository.
+2. Use the included `render.yaml` or set the build/start commands manually.
+3. Add `NEXUSLEAD_SESSION_SECRET`.
+4. Add a free PostgreSQL service from Neon, Supabase, or Render PostgreSQL when you are ready to run production migrations.
+5. Set the live URL in this README after deployment.
 
-## Sample Screenshots Placeholder
+## Testing
 
-The `screenshots/` folder is included as a placeholder only. No fake screenshots are included.
+```bash
+python -m pytest
+```
 
-## Compliance Note
+GitHub Actions runs the same test suite on push and pull request.
 
-This repository uses synthetic demo data only.
+## Integration Docs
 
-- No real website scraping
-- No bypassing platform limits
-- No automated commenting
-- No collection of real personal data
-- No auto-sending outreach
-
-Future real integrations should use official APIs, CRM imports, opt-in datasets, manually approved lead sources, and human approval before any message is sent.
-
-## n8n Expansion Plan
-
-The `docs/n8n-expansion.md` file describes future workflow automation options:
-
-- CRM import
-- Email draft approval
-- Slack or Teams alerts
-- Google Sheets export
-- Scheduled lead checks through approved APIs
-- Review monitoring through approved sources
-
-The current project does not implement real scraping or automated outreach.
-
-## Deployment
-
-The app is designed to run on free or low-cost hosting that supports Docker or ASGI apps, such as Render, Fly.io, or Railway. See `docs/deployment.md`.
-
-## Future Roadmap
-
-- User authentication and role-based agent queues
-- Client-specific qualification rules
-- Editable outreach approval workflow
-- Import from CRM CSV files
-- Approval audit log
-- More detailed review response workflow
-- Static read-only demo export for GitHub Pages
+- [Operations, jobs, email, calendar, monitoring, and migrations](docs/operations.md)
+- [Google Sheets and n8n workflows](docs/n8n-expansion.md)
+- [Compliance model](docs/compliance.md)
+- [Architecture](docs/architecture.md)
+- [Deployment](docs/deployment.md)

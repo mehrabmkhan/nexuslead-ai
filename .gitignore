@@ -11,3 +11,4 @@ app/*.db
 data/*.db
 reports/*.csv
 reports/generated_*.md
+uploads/
