@@ -1,8 +1,14 @@
 flowchart LR
-    S[Synthetic demand signals] --> Q[AI qualification rules]
-    Q --> M[Client matching engine]
-    M --> C[SQLite CRM pipeline]
-    C --> D[BPO agent dashboard]
-    C --> E[CSV exports and daily report]
-    R[Simulated reviews] --> D
-    D --> H[Human-approved outreach]
+    U[Admin / Manager / Agent] --> R[Render Free Web Service]
+    R --> F[FastAPI App]
+    F --> UI[Jinja2 SaaS UI]
+    F --> API[Role-Aware API Routes]
+    API --> S[Services Layer]
+    S --> DB[(SQLite MVP Database)]
+    S --> CSV[CSV Exports]
+    S --> REP[Daily Report]
+    S --> AUD[Audit Events]
+    S --> JOB[Background Job Registry]
+    S --> MAIL[Console Email Provider]
+    F --> OBS[/health /metrics /docs]
+    GH[GitHub main branch] --> R
