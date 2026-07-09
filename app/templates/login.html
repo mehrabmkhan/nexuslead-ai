@@ -12,48 +12,139 @@
       --muted: #667085;
       --line: #d7dde5;
       --brand: #2563eb;
+      --brand-dark: #102235;
       --panel: #ffffff;
       --page: #eef2f6;
+      --soft: #f7f9fc;
+      --green: #087443;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 20px; background: var(--page); color: var(--ink); }
-    main { width: min(440px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 30px; box-shadow: 0 18px 45px rgba(16, 34, 53, .12); }
-    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
-    .mark { width: 42px; height: 42px; border-radius: 8px; display: grid; place-items: center; background: #102235; color: white; font-weight: 800; }
-    h1 { margin: 0; font-size: 25px; letter-spacing: 0; }
-    p { margin: 5px 0 0; color: var(--muted); line-height: 1.45; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--page);
+      color: var(--ink);
+      display: grid;
+      place-items: center;
+      padding: 28px;
+    }
+    .shell {
+      width: min(980px, 100%);
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(360px, .8fr);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 24px 70px rgba(16, 34, 53, .14);
+    }
+    .intro {
+      background: var(--brand-dark);
+      color: white;
+      padding: 42px;
+      display: grid;
+      align-content: space-between;
+      min-height: 560px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .mark {
+      width: 46px;
+      height: 46px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: white;
+      color: var(--brand-dark);
+      font-weight: 900;
+    }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: 22px; letter-spacing: 0; }
+    .eyebrow { color: #a7c5ff; font-size: 13px; font-weight: 800; margin-bottom: 12px; text-transform: uppercase; }
+    .headline { font-size: clamp(32px, 5vw, 48px); line-height: 1.02; letter-spacing: 0; margin-bottom: 18px; }
+    .copy { color: #d7e1ee; font-size: 16px; line-height: 1.65; max-width: 560px; }
+    .signals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 30px; }
+    .signal { border: 1px solid rgba(255,255,255,.16); border-radius: 8px; padding: 14px; background: rgba(255,255,255,.06); }
+    .signal strong { display: block; font-size: 18px; margin-bottom: 4px; }
+    .signal span { color: #cbd5e1; font-size: 12px; }
+    .panel { padding: 38px; display: grid; align-content: center; gap: 22px; }
+    .panel h2 { font-size: 25px; letter-spacing: 0; }
+    .panel p { color: var(--muted); line-height: 1.5; margin-top: 6px; }
     form { display: grid; gap: 12px; }
-    label { display: grid; gap: 6px; font-size: 13px; color: #344054; font-weight: 700; }
-    input, button { border: 1px solid #b8c2cc; border-radius: 6px; padding: 10px 12px; font: inherit; min-height: 42px; }
-    button { border-color: var(--brand); background: var(--brand); color: white; cursor: pointer; font-weight: 800; }
-    .error { background: #fff1f3; border: 1px solid #fda4af; color: #b42318; border-radius: 6px; padding: 10px; margin-bottom: 12px; }
-    .hint { margin-top: 16px; font-size: 13px; color: var(--muted); line-height: 1.55; }
+    label { display: grid; gap: 6px; font-size: 13px; color: #344054; font-weight: 800; }
+    input, button {
+      border: 1px solid #b8c2cc;
+      border-radius: 6px;
+      padding: 11px 12px;
+      font: inherit;
+      min-height: 44px;
+    }
+    input:focus { outline: 3px solid #dbeafe; border-color: var(--brand); }
+    button { border-color: var(--brand); background: var(--brand); color: white; cursor: pointer; font-weight: 850; }
+    .error { background: #fff1f3; border: 1px solid #fda4af; color: #b42318; border-radius: 6px; padding: 10px; }
+    .credentials { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    .credentials h3 { margin: 0 0 10px; font-size: 14px; }
+    .credential-row { display: grid; grid-template-columns: 78px 1fr; gap: 8px; padding: 8px 0; border-top: 1px solid #e4e9f1; font-size: 13px; }
+    .credential-row:first-of-type { border-top: 0; padding-top: 0; }
+    .credential-row strong { color: var(--brand-dark); }
+    .credential-row code { color: var(--ink); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; white-space: normal; }
+    .note { color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .status { display: inline-flex; gap: 7px; align-items: center; color: var(--green); font-size: 13px; font-weight: 800; }
+    .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--green); }
+    @media (max-width: 820px) {
+      body { padding: 16px; }
+      .shell { grid-template-columns: 1fr; }
+      .intro { min-height: auto; padding: 28px; gap: 28px; }
+      .signals { grid-template-columns: 1fr; }
+      .panel { padding: 28px; }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <div class="brand">
-      <div class="mark">NL</div>
-      <div>
-        <h1>NexusLead AI</h1>
-        <p>Internal B2B lead operations platform for NextRNS-style BPO teams.</p>
+  <main class="shell">
+    <section class="intro" aria-label="NexusLead AI overview">
+      <div class="brand">
+        <div class="mark">NL</div>
+        <div>
+          <h1>NexusLead AI</h1>
+          <p class="copy">NextRNS lead operations</p>
+        </div>
       </div>
-    </div>
-    {% if error %}<div class="error">{{ error }}</div>{% endif %}
-    <form method="post" action="/login">
-      <label>Email
-        <input name="email" type="email" autocomplete="email" value="admin@nextrns.local" required>
-      </label>
-      <label>Password
-        <input name="password" type="password" autocomplete="current-password" value="admin123" required>
-      </label>
-      <button type="submit">Sign in</button>
-    </form>
-    <div class="hint">
-      Admin: admin@nextrns.local / admin123<br>
-      Manager: manager@nextrns.local / manager123<br>
-      Agent: agent@nextrns.local / agent123
-    </div>
+      <div>
+        <p class="eyebrow">Internal B2B operations platform</p>
+        <h2 class="headline">Lead intake, client matching, and reviewed outreach in one workspace.</h2>
+        <p class="copy">Built for NextRNS-style BPO teams managing lead qualification, follow-up tasks, approval workflows, exports, and operating visibility across admins, managers, and agents.</p>
+        <div class="signals">
+          <div class="signal"><strong>3 roles</strong><span>Admin, Manager, Agent</span></div>
+          <div class="signal"><strong>Live</strong><span>Render Free deployment</span></div>
+          <div class="signal"><strong>Reviewed</strong><span>Human-approved outreach</span></div>
+        </div>
+      </div>
+      <div class="status"><span class="dot"></span><span>Public demo environment ready</span></div>
+    </section>
+
+    <section class="panel" aria-label="Sign in">
+      <div>
+        <h2>Sign in to the operations dashboard</h2>
+        <p>Use any demo account below to review the role-based SaaS workflow.</p>
+      </div>
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+      <form method="post" action="/login">
+        <label>Email
+          <input name="email" type="email" autocomplete="email" value="admin@nextrns.local" required>
+        </label>
+        <label>Password
+          <input name="password" type="password" autocomplete="current-password" value="admin123" required>
+        </label>
+        <button type="submit">Open dashboard</button>
+      </form>
+      <div class="credentials">
+        <h3>Demo credentials</h3>
+        <div class="credential-row"><strong>Admin</strong><code>admin@nextrns.local / admin123</code></div>
+        <div class="credential-row"><strong>Manager</strong><code>manager@nextrns.local / manager123</code></div>
+        <div class="credential-row"><strong>Agent</strong><code>agent@nextrns.local / agent123</code></div>
+      </div>
+      <p class="note">This public demo uses approved sample data and keeps outreach drafts human-reviewed before use.</p>
+    </section>
   </main>
 </body>
 </html>

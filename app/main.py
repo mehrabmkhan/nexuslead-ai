@@ -127,8 +127,7 @@ def export_user(kind: str, user: dict) -> dict:
     return user
 
 
-@app.get("/", tags=["monitoring"])
-def health() -> dict:
+def health_payload() -> dict:
     return {
         "product": "NexusLead AI",
         "platform": "Internal B2B lead operations platform for NextRNS-style BPO teams",
@@ -137,9 +136,16 @@ def health() -> dict:
     }
 
 
+@app.get("/", include_in_schema=False)
+def product_entry(request: Request) -> RedirectResponse:
+    if read_session(request.cookies.get(SESSION_COOKIE)):
+        return RedirectResponse("/dashboard", status_code=303)
+    return RedirectResponse("/login", status_code=303)
+
+
 @app.get("/health", tags=["monitoring"])
 def health_check() -> dict:
-    return health()
+    return health_payload()
 
 
 @app.get("/metrics", tags=["monitoring"])

@@ -31,8 +31,22 @@ def agent_client(client):
     return login_as(client, "agent@nextrns.local", "agent123")
 
 
+def test_root_redirects_to_login(client):
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_root_redirects_authenticated_users_to_dashboard(admin_client):
+    response = admin_client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard"
+
+
 def test_health_endpoint(client):
-    response = client.get("/")
+    response = client.get("/health")
 
     assert response.status_code == 200
     assert response.json()["product"] == "NexusLead AI"
