@@ -31,11 +31,13 @@ def agent_client(client):
     return login_as(client, "agent@nextrns.local", "agent123")
 
 
-def test_root_redirects_to_login(client):
+def test_root_renders_login_for_public_visitors(client):
     response = client.get("/", follow_redirects=False)
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.status_code == 200
+    assert "NexusLead AI" in response.text
+    assert "Demo credentials" in response.text
+    assert response.headers["cache-control"].startswith("no-store")
 
 
 def test_root_redirects_authenticated_users_to_dashboard(admin_client):

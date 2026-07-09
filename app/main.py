@@ -127,6 +127,12 @@ def export_user(kind: str, user: dict) -> dict:
     return user
 
 
+def no_store(response: Response) -> Response:
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
 def health_payload() -> dict:
     return {
         "product": "NexusLead AI",
@@ -136,11 +142,11 @@ def health_payload() -> dict:
     }
 
 
-@app.get("/", include_in_schema=False)
-def product_entry(request: Request) -> RedirectResponse:
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def product_entry(request: Request):
     if read_session(request.cookies.get(SESSION_COOKIE)):
-        return RedirectResponse("/dashboard", status_code=303)
-    return RedirectResponse("/login", status_code=303)
+        return no_store(RedirectResponse("/dashboard", status_code=303))
+    return no_store(templates.TemplateResponse(request, "login.html", {"error": None}))
 
 
 @app.get("/health", tags=["monitoring"])
@@ -166,7 +172,7 @@ def jobs_status(user: dict = Depends(admin_user)) -> dict:
 
 @app.get("/login", response_class=HTMLResponse, tags=["auth"])
 def login_page(request: Request, error: str | None = None) -> HTMLResponse:
-    return templates.TemplateResponse(request, "login.html", {"error": error})
+    return no_store(templates.TemplateResponse(request, "login.html", {"error": error}))
 
 
 @app.post("/login", tags=["auth"])
