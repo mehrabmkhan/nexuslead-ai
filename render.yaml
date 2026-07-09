@@ -3,8 +3,12 @@ services:
     name: nexuslead-ai
     runtime: python
     plan: free
+    repo: https://github.com/mehrabmkhan/nexuslead-ai.git
+    branch: main
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
     envVars:
       - key: NEXUSLEAD_SESSION_SECRET
         generateValue: true
