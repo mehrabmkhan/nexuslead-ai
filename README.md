@@ -89,6 +89,10 @@ AWS architecture diagram: [diagrams/aws-architecture.mmd](diagrams/aws-architect
 
 ![NexusLead AI operations dashboard](screenshots/dashboard.png)
 
+### Integration Status
+
+![NexusLead AI integration status](screenshots/integrations.png)
+
 ## Feature Walkthrough
 
 1. Sign in with one of the review roles.
