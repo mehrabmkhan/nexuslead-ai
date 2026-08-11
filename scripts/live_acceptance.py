@@ -24,6 +24,16 @@ class Session:
         with self.opener.open(request, timeout=30) as response:
             return response.status, response.read().decode("utf-8", errors="replace")
 
+    def post_json(self, path: str, data: dict, headers: dict[str, str] | None = None) -> tuple[int, str]:
+        request = Request(
+            BASE_URL + path,
+            data=json.dumps(data).encode("utf-8"),
+            headers={"Content-Type": "application/json", **(headers or {})},
+            method="POST",
+        )
+        with self.opener.open(request, timeout=30) as response:
+            return response.status, response.read().decode("utf-8", errors="replace")
+
 
 def require(condition: bool, message: str) -> None:
     if not condition:
@@ -107,7 +117,44 @@ def main() -> None:
     if tasks:
         agent.post(f"/tasks/{tasks[0]['id']}/close", {})
 
-    for path in ["/api/analytics", "/reports/daily", "/export/leads.csv", "/export/google-sheets.csv", "/export/tasks.csv"]:
+    api_context = f"Live API intake lead {marker}"
+    status, body = admin.post_json(
+        "/api/leads/intake",
+        {
+            "source": "Approved API intake",
+            "category": "Security company",
+            "city": "Mississauga",
+            "context": api_context,
+            "budget": 12000,
+            "owner": "Unassigned",
+        },
+    )
+    require(status == 200 and "ShieldPoint Security" in body, "authenticated API intake failed")
+
+    webhook_context = f"Live n8n webhook lead {marker}"
+    status, body = anon.post_json(
+        "/webhooks/n8n/leads",
+        {
+            "category": "Cleaning service",
+            "city": "Toronto",
+            "context": webhook_context,
+            "budget": 1600,
+        },
+        {"Authorization": "Bearer local-webhook-token"},
+    )
+    require(status == 200 and "accepted" in body, "n8n webhook intake failed")
+
+    for path in [
+        "/api/analytics",
+        "/api/integrations",
+        "/api/imports",
+        "/integrations",
+        "/reports/daily",
+        "/export/leads.csv",
+        "/export/google-sheets.csv",
+        "/templates/google-sheets-leads.csv",
+        "/export/tasks.csv",
+    ]:
         status, body = admin.get(path)
         require(status == 200 and body, f"{path} failed")
 

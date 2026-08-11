@@ -121,3 +121,58 @@ def test_openapi_includes_core_paths(client):
     assert "/api/leads" in paths
     assert "/api/clients" in paths
     assert "/api/tasks" in paths
+    assert "/api/leads/intake" in paths
+    assert "/webhooks/n8n/leads" in paths
+
+
+def test_api_lead_intake_requires_login(client):
+    response = client.post("/api/leads/intake", json={"category": "Carpenter"}, follow_redirects=False)
+
+    assert response.status_code == 303
+
+
+def test_authenticated_api_lead_intake_creates_operational_workflow(admin_client):
+    payload = {
+        "source": "Approved API intake",
+        "category": "Security company",
+        "city": "Mississauga",
+        "context": "Distribution centre needs urgent coverage this week",
+        "budget": 11000,
+        "owner": "Unassigned",
+    }
+    response = admin_client.post("/api/leads/intake", json=payload)
+    lead = response.json()["lead"]
+    tasks = admin_client.get("/api/tasks").json()
+
+    assert response.status_code == 200
+    assert lead["priority"] == "High"
+    assert lead["client_name"] == "ShieldPoint Security"
+    assert any(task["lead_id"] == lead["id"] for task in tasks)
+
+
+def test_webhook_lead_intake_requires_token(client):
+    payload = {
+        "category": "Cleaning service",
+        "city": "Toronto",
+        "context": "Office needs recurring cleaning quote",
+        "budget": 1500,
+    }
+
+    assert client.post("/webhooks/n8n/leads", json=payload).status_code == 401
+    accepted = client.post("/webhooks/n8n/leads", json=payload, headers={"Authorization": "Bearer local-webhook-token"})
+
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "accepted"
+
+
+def test_integrations_page_and_import_history(admin_client):
+    page = admin_client.get("/integrations")
+    api = admin_client.get("/api/integrations")
+    imports = admin_client.get("/api/imports")
+    template = admin_client.get("/templates/google-sheets-leads.csv")
+
+    assert page.status_code == 200
+    assert "Operational now" in page.text
+    assert api.json()["connected"]
+    assert imports.status_code == 200
+    assert "source,category,city,context,budget" in template.text

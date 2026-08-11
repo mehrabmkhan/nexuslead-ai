@@ -1,12 +1,49 @@
-# n8n Expansion Plan
+# n8n and Google Sheets Workflows
 
-NexusLead AI can later connect to n8n without changing the compliance model.
+NexusLead AI currently supports a token-protected webhook suitable for n8n and a Google Sheets-compatible CSV workflow. Direct third-party account connections are future integrations and should only be enabled through approved APIs and human approval workflows.
+
+## Operational Now
+
+### n8n Webhook Lead Intake
+
+Use an n8n HTTP Request node to send approved lead data to:
+
+```text
+POST /webhooks/n8n/leads
+Authorization: Bearer <NEXUSLEAD_WEBHOOK_TOKEN>
+Content-Type: application/json
+```
+
+Required JSON fields:
+
+```json
+{
+  "source": "n8n webhook",
+  "category": "Security company",
+  "city": "Mississauga",
+  "context": "Warehouse manager needs urgent overnight coverage this week",
+  "budget": 9000,
+  "owner": "Unassigned",
+  "due_date": "2026-08-20"
+}
+```
+
+The endpoint validates required fields, rejects duplicates, classifies priority, recommends a client, creates an outreach draft, writes timeline/audit events, and opens a follow-up task.
+
+### Google Sheets CSV Workflow
+
+1. Download `/templates/google-sheets-leads.csv`.
+2. Fill rows in Google Sheets using the required columns.
+3. Export the sheet as CSV.
+4. Upload the file in the dashboard CSV import panel.
+5. Review the import history for created, duplicate, and error counts.
+6. Export updated leads through `/export/google-sheets.csv`.
 
 ## Future Workflow Ideas
 
 ### CRM Import
 
-Import approved lead or client CSV exports from a CRM. The workflow should validate columns, remove duplicates, and mark imported records as approved-source data.
+Import approved lead or client CSV exports from a CRM or use official CRM APIs. The workflow should validate columns, remove duplicates, and mark imported records as approved-source data.
 
 ### Email Draft Approval
 
@@ -18,7 +55,7 @@ Post high-priority lead alerts to a private team channel. Alerts should include 
 
 ### Google Sheets Export
 
-Export lead and task queues to a shared operations sheet for teams that still manage daily work in spreadsheets.
+Direct Sheets API sync can be added after an approved Google Cloud project and credential model exists. Until then, use the CSV template/export workflow.
 
 ### Scheduled Lead Checks
 

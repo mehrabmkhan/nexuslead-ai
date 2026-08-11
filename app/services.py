@@ -17,6 +17,7 @@ from .notifications import notify_outreach_approved
 
 PIPELINE_STATUSES = ["New", "Qualified", "Contacted", "Follow-up", "Converted", "Not Fit"]
 ROLES = ["admin", "manager", "agent"]
+REQUIRED_LEAD_COLUMNS = {"source", "category", "city", "context", "budget"}
 
 INTAKE_RECORDS = [
     {
@@ -159,6 +160,51 @@ def can_export(user: dict, kind: str) -> bool:
     return user["role"] in {"admin", "manager"} or (user["role"] == "agent" and kind == "tasks")
 
 
+def normalize_lead_payload(payload: dict) -> dict:
+    source = str(payload.get("source") or "Manual intake").strip()
+    category = str(payload.get("category") or "").strip()
+    city = str(payload.get("city") or "").strip()
+    context = str(payload.get("context") or payload.get("lead_context") or "").strip()
+    try:
+        budget = int(payload.get("budget") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Budget must be a whole number") from exc
+    if not category:
+        raise ValueError("Category is required")
+    if not city:
+        raise ValueError("City is required")
+    if not context:
+        raise ValueError("Lead context is required")
+    if budget < 0:
+        raise ValueError("Budget cannot be negative")
+    normalized = {
+        **payload,
+        "source": source,
+        "category": category,
+        "city": city,
+        "context": context,
+        "budget": budget,
+    }
+    return normalized
+
+
+def duplicate_lead(payload: dict) -> dict | None:
+    normalized = normalize_lead_payload(payload)
+    return row(
+        """
+        SELECT id, source, category, city, context, budget, created_at
+        FROM leads
+        WHERE lower(category) = lower(?)
+          AND lower(city) = lower(?)
+          AND lower(context) = lower(?)
+          AND budget = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (normalized["category"], normalized["city"], normalized["context"], normalized["budget"]),
+    )
+
+
 def classify_priority(urgency: int, fit: int) -> str:
     score = urgency + fit
     if score >= 16:
@@ -217,11 +263,16 @@ def score_lead(category: str, city: str, budget: int, context: str) -> dict:
     return {"client": client, "urgency": urgency, "fit": fit, "priority": priority, "explanation": explanation}
 
 
-def create_lead(payload: dict, actor: str = "System") -> int:
-    category = payload["category"].strip()
-    city = payload["city"].strip()
-    context = payload["context"].strip()
-    budget = int(payload.get("budget") or 0)
+def create_lead(payload: dict, actor: str = "System", detect_duplicate: bool = False) -> int:
+    payload = normalize_lead_payload(payload)
+    if detect_duplicate:
+        existing = duplicate_lead(payload)
+        if existing:
+            raise ValueError(f"Duplicate lead matches existing lead #{existing['id']}")
+    category = payload["category"]
+    city = payload["city"]
+    context = payload["context"]
+    budget = payload["budget"]
     scored = score_lead(category, city, budget, context)
     client = scored["client"]
     status = payload.get("status") or ("Qualified" if scored["priority"] in {"High", "Medium"} else "New")
@@ -261,16 +312,30 @@ def create_lead(payload: dict, actor: str = "System") -> int:
         )
         lead_id = int(cursor.lastrowid)
         due_date = payload.get("due_date") or (date.today() + timedelta(days=1)).isoformat()
+        task_label = "Review qualified lead and prepare follow-up" if status == "Qualified" else next_action
         connection.execute(
             """
             INSERT INTO follow_up_tasks (lead_id, client_id, due_date, task, owner, status)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (lead_id, client["id"] if client else None, due_date, next_action, owner, "Open"),
+            (lead_id, client["id"] if client else None, due_date, task_label, owner, "Open"),
         )
         connection.execute(
             "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
             (lead_id, actor, "created", f"Lead added from {payload.get('source', 'Manual intake')}.")
+        )
+        connection.execute(
+            "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+            (lead_id, "NexusLead AI", "qualification", scored["explanation"]),
+        )
+        if client:
+            connection.execute(
+                "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+                (lead_id, "NexusLead AI", "client_match", f"Recommended {client['name']} for {category} in {city}."),
+            )
+        connection.execute(
+            "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+            (lead_id, "NexusLead AI", "task", f"Created follow-up task due {due_date}."),
         )
         connection.execute(
             """
@@ -283,6 +348,19 @@ def create_lead(payload: dict, actor: str = "System") -> int:
     return lead_id
 
 
+def create_intake_lead(payload: dict, actor: str = "API") -> dict:
+    lead_id = create_lead(payload, actor=actor, detect_duplicate=True)
+    return row(
+        """
+        SELECT leads.*, clients.name AS client_name
+        FROM leads
+        LEFT JOIN clients ON clients.id = leads.matched_client_id
+        WHERE leads.id = ?
+        """,
+        (lead_id,),
+    ) or {"id": lead_id}
+
+
 def seed_operational_records() -> list[int]:
     created: list[int] = []
     for item in INTAKE_RECORDS:
@@ -292,20 +370,71 @@ def seed_operational_records() -> list[int]:
     return created
 
 
-def import_leads_csv(csv_text: str, actor: str) -> dict:
+def record_import_batch(actor: str, source: str, file_name: str, result: dict) -> int:
+    summary_parts = [
+        f"{result['created']} created",
+        f"{result.get('duplicates', 0)} duplicates",
+        f"{len(result['errors'])} errors",
+    ]
+    with connect() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO import_batches (
+                actor, source, file_name, total_rows, created_count,
+                duplicate_count, error_count, status, summary
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                actor,
+                source,
+                file_name,
+                result.get("total_rows", 0),
+                result["created"],
+                result.get("duplicates", 0),
+                len(result["errors"]),
+                "Completed with errors" if result["errors"] else "Completed",
+                ", ".join(summary_parts),
+            ),
+        )
+        connection.commit()
+        return int(cursor.lastrowid)
+
+
+def import_history(limit: int = 10) -> list[dict]:
+    return rows("SELECT * FROM import_batches ORDER BY created_at DESC, id DESC LIMIT ?", (limit,))
+
+
+def import_leads_csv(csv_text: str, actor: str, file_name: str = "") -> dict:
     reader = csv.DictReader(StringIO(csv_text))
-    required = {"source", "category", "city", "context", "budget"}
-    if not reader.fieldnames or not required.issubset({name.strip() for name in reader.fieldnames}):
-        return {"created": 0, "errors": ["CSV must include source, category, city, context, budget columns."]}
+    if not reader.fieldnames or not REQUIRED_LEAD_COLUMNS.issubset({name.strip() for name in reader.fieldnames}):
+        result = {
+            "created": 0,
+            "duplicates": 0,
+            "total_rows": 0,
+            "errors": ["CSV must include source, category, city, context, budget columns."],
+        }
+        result["batch_id"] = record_import_batch(actor, "CSV import", file_name, result)
+        return result
     created = 0
+    duplicates = 0
     errors: list[str] = []
+    total_rows = 0
     for index, item in enumerate(reader, start=2):
+        total_rows += 1
         try:
-            create_lead(item, actor=actor)
+            create_lead(item, actor=actor, detect_duplicate=True)
             created += 1
+        except ValueError as exc:
+            if "Duplicate lead" in str(exc):
+                duplicates += 1
+            else:
+                errors.append(f"Line {index}: {exc}")
         except Exception as exc:  # pragma: no cover - defensive user input path
             errors.append(f"Line {index}: {exc}")
-    return {"created": created, "errors": errors}
+    result = {"created": created, "duplicates": duplicates, "total_rows": total_rows, "errors": errors}
+    result["batch_id"] = record_import_batch(actor, "CSV import", file_name, result)
+    return result
 
 
 def create_client(payload: dict, actor: str = "System") -> int:
@@ -448,6 +577,24 @@ def close_task(task_id: int, actor: str) -> None:
         connection.commit()
 
 
+def schedule_task(task_id: int, due_date: str, actor: str) -> None:
+    if not due_date:
+        raise ValueError("Due date is required")
+    with connect() as connection:
+        task = connection.execute("SELECT lead_id FROM follow_up_tasks WHERE id = ?", (task_id,)).fetchone()
+        connection.execute("UPDATE follow_up_tasks SET due_date = ? WHERE id = ?", (due_date, task_id))
+        if task:
+            connection.execute(
+                "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+                (task["lead_id"], actor, "task", f"Follow-up task {task_id} rescheduled to {due_date}"),
+            )
+        connection.execute(
+            "INSERT INTO audit_logs (actor, action, entity_type, entity_id, detail) VALUES (?, ?, ?, ?, ?)",
+            (actor, "task.rescheduled", "task", task_id, f"Due {due_date}"),
+        )
+        connection.commit()
+
+
 def create_review_response(client_id: int, rating: int, text: str, source: str = "Client feedback") -> int:
     sentiment = classify_sentiment(rating, text)
     with connect() as connection:
@@ -567,6 +714,18 @@ def get_dashboard_data(filters: dict[str, str | None], user: dict | None = None)
             """
         ),
         "audit_logs": rows("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 20"),
+        "approval_queue": rows(
+            """
+            SELECT leads.*, clients.name AS client_name
+            FROM leads
+            LEFT JOIN clients ON clients.id = leads.matched_client_id
+            WHERE leads.outreach_status = 'Needs approval'
+            ORDER BY CASE leads.priority WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END, leads.created_at DESC
+            LIMIT 10
+            """
+        ),
+        "import_history": import_history(),
+        "integrations": integration_status(),
         "analytics": analytics(user),
         "pipeline_statuses": PIPELINE_STATUSES,
         "roles": ROLES,
@@ -628,7 +787,8 @@ def export_csv(kind: str, user: dict | None = None) -> str:
             """
             SELECT leads.id, leads.source, leads.category, leads.city, leads.context, leads.urgency,
                    leads.client_fit, leads.priority, leads.status, leads.owner, clients.name AS client_name,
-                   leads.outreach_status, leads.outreach_draft, leads.next_action, leads.attachment_name
+                   leads.outreach_status, leads.outreach_draft, leads.next_action, leads.notes,
+                   leads.attachment_name, leads.created_at, leads.updated_at
             FROM leads
             LEFT JOIN clients ON clients.id = leads.matched_client_id
             ORDER BY leads.priority
@@ -642,6 +802,25 @@ def export_csv(kind: str, user: dict | None = None) -> str:
 
 def google_sheets_csv(user: dict | None = None) -> str:
     return export_csv("leads", user)
+
+
+def google_sheets_template_csv() -> str:
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=["source", "category", "city", "context", "budget", "owner", "due_date", "notes"])
+    writer.writeheader()
+    writer.writerow(
+        {
+            "source": "Google Sheets import",
+            "category": "Security company",
+            "city": "Mississauga",
+            "context": "Warehouse manager needs urgent overnight coverage this week",
+            "budget": "9000",
+            "owner": "Unassigned",
+            "due_date": (date.today() + timedelta(days=1)).isoformat(),
+            "notes": "Approved intake source; review before outreach.",
+        }
+    )
+    return buffer.getvalue()
 
 
 def daily_report(user: dict | None = None) -> str:
@@ -664,3 +843,53 @@ def daily_report(user: dict | None = None) -> str:
     for status, count in data["conversion_status_summary"].items():
         lines.append(f"- {status}: {count}")
     return "\n".join(lines)
+
+
+def integration_status() -> dict:
+    webhook_token_configured = bool(os.getenv("NEXUSLEAD_WEBHOOK_TOKEN") or os.getenv("NEXUSLEAD_API_KEY"))
+    return {
+        "connected": [
+            {
+                "name": "Manual lead intake",
+                "status": "Operational",
+                "detail": "Dashboard form writes qualified leads, client recommendations, outreach drafts, tasks, and activity history.",
+            },
+            {
+                "name": "CSV bulk import",
+                "status": "Operational",
+                "detail": "Validated upload with duplicate detection and import history.",
+            },
+            {
+                "name": "Google Sheets CSV workflow",
+                "status": "Operational",
+                "detail": "Sheets-ready template, upload path, and export are available without direct Google account connection.",
+            },
+            {
+                "name": "Session-authenticated API intake",
+                "status": "Operational",
+                "detail": "POST /api/leads/intake accepts JSON for signed-in Admin, Manager, and Agent users.",
+            },
+            {
+                "name": "n8n webhook endpoint",
+                "status": "Operational" if webhook_token_configured else "Configuration required",
+                "detail": "POST /webhooks/n8n/leads accepts JSON with a Bearer token. Configure NEXUSLEAD_WEBHOOK_TOKEN for external workflows.",
+            },
+        ],
+        "future": [
+            {
+                "name": "Direct Google Sheets API sync",
+                "status": "Future integration",
+                "detail": "Use OAuth or a service account only after an approved Google Cloud setup exists.",
+            },
+            {
+                "name": "CRM imports",
+                "status": "Future integration",
+                "detail": "Connect approved CRMs through official APIs or scheduled CSV exports.",
+            },
+            {
+                "name": "Outbound sending",
+                "status": "Future integration",
+                "detail": "Drafts remain human-approved; sending should use approved email/CRM tools with audit logging.",
+            },
+        ],
+    }

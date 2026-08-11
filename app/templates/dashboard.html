@@ -158,6 +158,7 @@
         <a href="#tasks"><span class="nav-icon" aria-hidden="true">T</span>Tasks</a>
         <a href="#clients"><span class="nav-icon" aria-hidden="true">C</span>Clients</a>
         <a href="#analytics"><span class="nav-icon" aria-hidden="true">A</span>Analytics</a>
+        <a href="#integrations"><span class="nav-icon" aria-hidden="true">I</span>Integrations</a>
         <a href="/docs"><span class="nav-icon" aria-hidden="true">D</span>API docs</a>
       </div>
       <div class="userbox">
@@ -179,6 +180,7 @@
           {% if can_export_leads %}<a class="button" href="/export/leads.csv">Export leads</a>{% endif %}
           <a class="button secondary" href="/export/tasks.csv">Export tasks</a>
           {% if can_export_leads %}<a class="button secondary" href="/export/google-sheets.csv">Sheets CSV</a>{% endif %}
+          {% if can_export_leads %}<a class="button ghost" href="/templates/google-sheets-leads.csv">Sheets template</a>{% endif %}
           <a class="button ghost" href="/reports/daily">Daily report</a>
         </div>
       </div>
@@ -207,6 +209,26 @@
 
       <div class="layout">
         <section>
+          {% if can_review_leads %}
+          <div class="panel" id="approval">
+            <div class="section-title"><div><h3>Manager approval queue</h3><p class="muted">Qualified outreach drafts waiting for human approval.</p></div><span class="badge status-badge">{{ approval_queue|length }} pending</span></div>
+            {% if approval_queue %}
+            <div class="stack-list">
+              {% for lead in approval_queue %}
+              <div class="mini-card">
+                <strong>{{ lead.category }} - {{ lead.city }}</strong>
+                <span class="muted">{{ lead.client_name or "Unmatched" }} - {{ lead.priority }} priority - {{ lead.owner }}</span>
+                <p class="muted">{{ lead.outreach_draft }}</p>
+                <div class="toolbar" style="justify-content: flex-start;"><form method="post" action="/leads/{{ lead.id }}/approve"><button type="submit" class="secondary">Approve draft</button></form><a class="button ghost" href="/dashboard?status={{ lead.status }}#pipeline">Review in pipeline</a></div>
+              </div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty"><strong>No drafts waiting for approval.</strong>New qualified leads will appear here before outreach can be used.</div>
+            {% endif %}
+          </div>
+          {% endif %}
+
           <div class="panel">
             <div class="section-title"><div><h3>Lead intake</h3><p class="muted">Create a qualified lead and route it into the review workflow.</p></div></div>
             <form method="post" action="/leads" class="stack">
@@ -248,6 +270,19 @@
             <div class="empty"><strong>No leads match these filters.</strong>Adjust filters or create a new lead to populate the pipeline.</div>
             {% endif %}
           </div>
+
+          <div class="panel">
+            <div class="section-title"><div><h3>Lead activity timeline</h3><p class="muted">Every intake, qualification, match, assignment, approval, task, and status update.</p></div></div>
+            {% if lead_events %}
+            <div class="stack-list">
+              {% for event in lead_events %}
+              <div class="mini-card"><strong>{{ event.event_type|replace("_", " ")|title }} - {{ event.category }} in {{ event.city }}</strong><span class="muted">{{ event.note }}</span><br><span class="muted">{{ event.actor }} - {{ event.created_at }}</span></div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty"><strong>No lead activity yet.</strong>Operational workflow events will appear here.</div>
+            {% endif %}
+          </div>
         </section>
 
         <aside>
@@ -279,7 +314,11 @@
           <div class="panel">
             <h3>CSV import</h3>
             <form method="post" action="/leads/import" enctype="multipart/form-data" class="stack"><label class="sr-label" for="lead-file">Upload CSV</label><input id="lead-file" type="file" name="file" accept=".csv,text/csv" required><button type="submit">Import leads</button></form>
-            <p class="muted">Required columns: source, category, city, context, budget.</p>
+            <p class="muted">Required columns: source, category, city, context, budget. Duplicate rows are skipped and recorded in import history.</p>
+            <p><a class="button ghost" href="/templates/google-sheets-leads.csv">Download Sheets template</a></p>
+            {% if import_history %}
+            <div class="stack-list" style="margin-top: 12px;">{% for batch in import_history[:4] %}<div class="mini-card"><strong>{{ batch.status }}</strong><span class="muted">{{ batch.summary }}</span><br><span class="muted">{{ batch.actor }} - {{ batch.file_name or batch.source }} - {{ batch.created_at }}</span></div>{% endfor %}</div>
+            {% endif %}
           </div>
 
           <div class="panel" id="clients">
@@ -317,10 +356,19 @@
           <div class="panel" id="tasks">
             <div class="section-title"><div><h3>Follow-up queue</h3><p class="muted">Time-sensitive tasks by owner.</p></div></div>
             {% if tasks %}
-            <div class="stack-list">{% for task in tasks %}<div class="mini-card"><strong>{{ task.task }}</strong><span class="muted">Due {{ task.due_date }} - {{ task.owner }}</span><br><span class="badge status-badge">{{ task.status }}</span><span class="muted"> {{ task.client_name or "Unmatched" }}</span><form method="post" action="/tasks/{{ task.id }}/close" style="margin-top: 10px;"><button class="ghost" type="submit">Close task</button></form></div>{% endfor %}</div>
+            <div class="stack-list">{% for task in tasks %}<div class="mini-card"><strong>{{ task.task }}</strong><span class="muted">Due {{ task.due_date }} - {{ task.owner }}</span><br><span class="badge status-badge">{{ task.status }}</span><span class="muted"> {{ task.client_name or "Unmatched" }}</span><form method="post" action="/tasks/{{ task.id }}/schedule" class="inline" style="margin-top: 10px;"><label class="sr-only" for="due-{{ task.id }}">Due date</label><input id="due-{{ task.id }}" type="date" name="due_date" value="{{ task.due_date }}"><button class="ghost" type="submit">Schedule</button></form><form method="post" action="/tasks/{{ task.id }}/close" style="margin-top: 10px;"><button class="ghost" type="submit">Close task</button></form></div>{% endfor %}</div>
             {% else %}
             <div class="empty"><strong>No open follow-ups.</strong>New leads will create task queue items automatically.</div>
             {% endif %}
+          </div>
+
+          <div class="panel" id="integrations">
+            <div class="section-title"><div><h3>Integration status</h3><p class="muted">Operational intake paths are separated from future integrations.</p></div><a class="button ghost" href="/integrations">Status page</a></div>
+            <div class="stack-list">
+              {% for item in integrations.connected %}
+              <div class="mini-card"><strong>{{ item.name }}</strong><span class="badge status-badge">{{ item.status }}</span><br><span class="muted">{{ item.detail }}</span></div>
+              {% endfor %}
+            </div>
           </div>
 
           <div class="panel">

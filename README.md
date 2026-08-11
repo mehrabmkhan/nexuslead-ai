@@ -1,10 +1,10 @@
 # NexusLead AI
 
-Intelligent B2B Lead Operations Platform
+Internal B2B Lead Operations Platform
 
-NexusLead AI is a deployed internal B2B lead operations MVP for NextRNS-style BPO teams. It gives admins, managers, and lead generation specialists a shared workspace for lead intake, qualification, client matching, human-reviewed outreach drafts, follow-up tasks, reporting, and CSV exports.
+NexusLead AI is an AWS-hosted internal SaaS application designed and developed for NextRNS-style BPO business development workflows. It gives admins, managers, and lead operations agents one shared workspace for authorized lead intake, qualification, client matching, assignment, human-reviewed outreach drafts, follow-up scheduling, conversion tracking, reporting, exports, and audit history.
 
-This repository is a working portfolio MVP, not a claim of production customer adoption. The live app uses approved sample data and shows product, engineering, deployment, and operations readiness.
+The public environment uses realistic fictional business data so reviewers can exercise the workflows without exposing real customer records. The workflows are functional: leads are persisted in PostgreSQL, scored, matched, assigned, routed through approval, placed into follow-up queues, and included in database-backed analytics.
 
 ## Live Deployments
 
@@ -28,6 +28,7 @@ Useful live routes:
 - Login: `/login`
 - Dashboard: `/dashboard`
 - API docs: `/docs`
+- Integration status: `/integrations`
 - Health check: `/health`
 - Metrics: `/metrics`
 
@@ -95,17 +96,21 @@ AWS architecture diagram: [diagrams/aws-architecture.mmd](diagrams/aws-architect
 3. Use search and filters to narrow the lead pipeline by client, city, business type, priority, and status.
 4. Create a lead through the lead intake form.
 5. Review the deterministic score, matched client, priority badge, and outreach draft.
-6. Update status, add notes, assign ownership, attach file metadata, or approve an outreach draft depending on role.
-7. Review follow-up tasks, client profile cards, pipeline analytics, lead category charts, and audit activity.
-8. Export leads, tasks, Google Sheets-ready CSV, or the daily report.
+6. Managers assign ownership and approve outreach drafts before any external use.
+7. Agents schedule follow-ups, update statuses, add notes, and move leads through the conversion pipeline.
+8. Review the activity timeline for intake, qualification, client recommendation, assignment, approval, task, and status events.
+9. Use CSV import with validation, duplicate detection, and import history.
+10. Export leads, tasks, Google Sheets-ready CSV, a Sheets intake template, or the daily report.
 
 ## Product Scope
 
-NexusLead AI is designed for approved operational inputs:
+NexusLead AI is designed for approved operational inputs and human-reviewed workflows:
 
 - Manual lead entry
 - CSV upload
-- Google Sheets-ready CSV export/import
+- Google Sheets-ready CSV export/import using the template at `/templates/google-sheets-leads.csv`
+- Session-authenticated JSON intake at `/api/leads/intake`
+- Token-protected n8n webhook intake at `/webhooks/n8n/leads`
 - Approved CRM imports
 - Public business directories where terms allow access
 - Official APIs where available
@@ -118,20 +123,60 @@ Outreach remains human-reviewed before sending. The app does not implement auto-
 - Admin, Manager, and Agent roles
 - Role-based dashboard behavior
 - Multi-tenant client profiles with business type, service area, city, budget range, contact email, and notes
-- Lead intake and CSV import
-- Deterministic lead scoring and client matching
+- Lead intake through form, session-authenticated API, webhook, CSV upload, and Google Sheets-ready CSV
+- CSV bulk import validation, duplicate detection, and import history
+- Deterministic lead classification by service category, location, urgency, budget, and client fit
+- Automatic client recommendation and matching
+- Automatic follow-up task generation for qualified leads
 - Outreach draft generation with human approval status
+- Manager approval queue
 - Pipeline statuses: New, Qualified, Contacted, Follow-up, Converted, Not Fit
-- Follow-up task queue with due dates
-- Notes/history and audit logging
+- Follow-up task queue with due date scheduling
+- Lead activity timeline and audit logging
+- Database-backed analytics and daily reporting
 - File attachment metadata for leads
 - Review response drafting workflow
 - CSV exports for leads, tasks, and Google Sheets-ready data
+- Integration status page distinguishing operational intake paths from future integrations
 - Daily report endpoint
 - Basic health and metrics endpoints
 - FastAPI Swagger/OpenAPI docs
 - AWS EC2 deployment path with HTTPS, ECR, OIDC, SSM, CloudWatch, and PostgreSQL
 - Render Free fallback deployment with `render.yaml`
+
+## Operational Workflow
+
+```mermaid
+flowchart LR
+    Source[Authorized lead source] --> Intake[Form / API / webhook / CSV / Sheets CSV]
+    Intake --> Qualify[Qualification and priority scoring]
+    Qualify --> Match[Client recommendation]
+    Match --> Assign[Manager assignment]
+    Assign --> Draft[Outreach draft]
+    Draft --> Approval[Manager approval queue]
+    Approval --> Follow[Agent follow-up task]
+    Follow --> Pipeline[Conversion pipeline]
+    Pipeline --> Reports[Analytics, exports, daily report]
+    Pipeline --> History[Lead timeline and audit log]
+```
+
+## Current Integration Status
+
+Operational now:
+
+- Manual lead intake from the dashboard
+- CSV bulk import with required-column validation, duplicate detection, and import history
+- Google Sheets-compatible CSV template and exports
+- Session-authenticated JSON intake at `/api/leads/intake`
+- Token-protected n8n webhook intake at `/webhooks/n8n/leads`
+- CSV exports for leads, Google Sheets, and tasks
+
+Future integrations are documented as future work only:
+
+- Direct Google Sheets API sync
+- CRM imports through approved vendor APIs
+- Email/CRM outbound sending after human approval
+- Calendar reminders through approved calendar APIs
 
 ## Architecture
 
@@ -179,6 +224,8 @@ Environment variables:
 | `DATABASE_URL` | PostgreSQL connection string in AWS production |
 | `NEXUSLEAD_SECURE_COOKIES` | Enables Secure cookies behind HTTPS |
 | `LOG_LEVEL` | Runtime logging level for CloudWatch |
+| `NEXUSLEAD_WEBHOOK_TOKEN` | Shared token for n8n webhook lead intake |
+| `NEXUSLEAD_API_KEY` | Optional fallback token for webhook intake |
 
 ## Local Setup
 
@@ -228,7 +275,7 @@ AWS EC2 is the primary deployment target.
 
 ## Data And Production Notes
 
-Local development uses SQLite. AWS production should use PostgreSQL with Alembic migrations. Additional production hardening items:
+Local development uses SQLite. AWS production uses PostgreSQL with Alembic migrations. Additional production hardening items:
 
 - Durable object storage for uploads
 - Secret rotation and role administration policies

@@ -170,6 +170,20 @@ def initialize_database(seed: bool = True) -> None:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(lead_id) REFERENCES leads(id)
             );
+
+            CREATE TABLE IF NOT EXISTS import_batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor TEXT NOT NULL,
+                source TEXT NOT NULL,
+                file_name TEXT NOT NULL DEFAULT '',
+                total_rows INTEGER NOT NULL DEFAULT 0,
+                created_count INTEGER NOT NULL DEFAULT 0,
+                duplicate_count INTEGER NOT NULL DEFAULT 0,
+                error_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                summary TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
         _ensure_column(connection, "users", "created_at", "TEXT NOT NULL DEFAULT ''")
@@ -183,6 +197,8 @@ def initialize_database(seed: bool = True) -> None:
         _ensure_column(connection, "leads", "updated_at", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(connection, "follow_up_tasks", "created_at", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(connection, "reviews", "created_at", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "import_batches", "file_name", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "import_batches", "summary", "TEXT NOT NULL DEFAULT ''")
         if seed:
             _seed(connection)
         connection.commit()

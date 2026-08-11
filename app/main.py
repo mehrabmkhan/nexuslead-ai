@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from hashlib import sha256
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -33,12 +33,17 @@ from .services import (
     daily_report,
     export_csv,
     get_dashboard_data,
+    google_sheets_template_csv,
     import_leads_csv,
+    import_history,
+    integration_status,
     list_users,
     row,
     rows,
+    schedule_task,
     seed_operational_records,
     seed_reviews,
+    create_intake_lead,
     update_lead_status,
 )
 
@@ -70,7 +75,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="NexusLead AI",
-    version="1.1.0",
+    version="1.2.2",
     description="Internal B2B lead operations platform for NextRNS-style BPO teams.",
     lifespan=lifespan,
     openapi_tags=[
@@ -80,6 +85,7 @@ app = FastAPI(
         {"name": "tasks", "description": "Follow-up task queues and due dates"},
         {"name": "analytics", "description": "Operating metrics and reports"},
         {"name": "exports", "description": "CSV and Google Sheets-ready exports"},
+        {"name": "integrations", "description": "Operational intake and integration readiness"},
         {"name": "monitoring", "description": "Health, metrics, and background job readiness"},
     ],
 )
@@ -149,6 +155,23 @@ def reviewer_user(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+def webhook_token() -> str:
+    return os.getenv("NEXUSLEAD_WEBHOOK_TOKEN") or os.getenv("NEXUSLEAD_API_KEY") or "local-webhook-token"
+
+
+def webhook_actor(
+    authorization: str | None = Header(default=None),
+    x_nexuslead_token: str | None = Header(default=None),
+) -> str:
+    expected = webhook_token()
+    supplied = x_nexuslead_token or ""
+    if authorization and authorization.lower().startswith("bearer "):
+        supplied = authorization.split(" ", 1)[1].strip()
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="Valid webhook token required")
+    return "n8n webhook"
+
+
 def export_user(kind: str, user: dict) -> dict:
     if not can_export(user, kind):
         raise HTTPException(status_code=403, detail="Export is not available for this role")
@@ -197,6 +220,15 @@ def metrics() -> dict:
 @app.get("/jobs/status", tags=["monitoring"])
 def jobs_status(user: dict = Depends(admin_user)) -> dict:
     return scheduler_status()
+
+
+@app.get("/integrations", response_class=HTMLResponse, tags=["integrations"])
+def integrations_page(request: Request, user: dict = Depends(current_user)) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "integrations.html",
+        {"user": user, "integrations": integration_status(), "message": request.query_params.get("message")},
+    )
 
 
 @app.get("/login", response_class=HTMLResponse, tags=["auth"])
@@ -268,22 +300,37 @@ def add_lead(
     user: dict = Depends(current_user),
 ) -> RedirectResponse:
     chosen_owner = user["name"] if user["role"] == "agent" else owner
-    create_lead(
-        {"source": source, "category": category, "city": city, "context": context, "budget": budget, "owner": chosen_owner, "due_date": due_date or None},
-        actor=user["name"],
-    )
+    try:
+        create_lead(
+            {"source": source, "category": category, "city": city, "context": context, "budget": budget, "owner": chosen_owner, "due_date": due_date or None},
+            actor=user["name"],
+        )
+    except ValueError as exc:
+        return RedirectResponse(f"/dashboard?message={str(exc).replace(' ', '+')}", status_code=303)
     return RedirectResponse("/dashboard?message=Lead+created", status_code=303)
 
 
 @app.post("/leads/import", tags=["leads"])
 async def import_leads(file: UploadFile = File(...), user: dict = Depends(current_user)) -> RedirectResponse:
     content = (await file.read()).decode("utf-8-sig")
-    result = import_leads_csv(content, user["name"])
+    result = import_leads_csv(content, user["name"], file.filename or "")
     if result["errors"]:
         message = result["errors"][0].replace(" ", "+")
     else:
-        message = f"{result['created']}+leads+imported"
+        message = f"{result['created']}+created,+{result['duplicates']}+duplicates,+batch+{result['batch_id']}"
     return RedirectResponse(f"/dashboard?message={message}", status_code=303)
+
+
+@app.post("/api/leads/intake", tags=["leads"])
+def api_lead_intake(payload: dict = Body(...), user: dict = Depends(current_user)) -> dict:
+    lead = create_intake_lead(payload, actor=user["name"])
+    return {"status": "created", "lead": lead}
+
+
+@app.post("/webhooks/n8n/leads", tags=["integrations"])
+def n8n_lead_webhook(payload: dict = Body(...), actor: str = Depends(webhook_actor)) -> dict:
+    lead = create_intake_lead({**payload, "source": payload.get("source") or "n8n webhook"}, actor=actor)
+    return {"status": "accepted", "lead": lead}
 
 
 @app.post("/leads/{lead_id}/status", tags=["leads"])
@@ -323,6 +370,12 @@ async def attach_file(lead_id: int, file: UploadFile = File(...), user: dict = D
 def close_follow_up_task(task_id: int, user: dict = Depends(current_user)) -> RedirectResponse:
     close_task(task_id, user["name"])
     return RedirectResponse("/dashboard?message=Task+closed", status_code=303)
+
+
+@app.post("/tasks/{task_id}/schedule", tags=["tasks"])
+def reschedule_follow_up_task(task_id: int, due_date: str = Form(...), user: dict = Depends(current_user)) -> RedirectResponse:
+    schedule_task(task_id, due_date, user["name"])
+    return RedirectResponse("/dashboard?message=Task+rescheduled", status_code=303)
 
 
 @app.post("/clients", tags=["clients"])
@@ -406,6 +459,16 @@ def api_analytics(user: dict = Depends(current_user)) -> dict:
     return analytics()
 
 
+@app.get("/api/imports", tags=["integrations"])
+def api_import_history(user: dict = Depends(current_user)) -> list[dict]:
+    return import_history()
+
+
+@app.get("/api/integrations", tags=["integrations"])
+def api_integrations(user: dict = Depends(current_user)) -> dict:
+    return integration_status()
+
+
 @app.get("/export/leads.csv", tags=["exports"])
 def export_leads(user: dict = Depends(current_user)) -> Response:
     export_user("leads", user)
@@ -423,6 +486,15 @@ def export_google_sheets(user: dict = Depends(current_user)) -> Response:
         content=export_csv("leads", user),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=nexuslead_google_sheets.csv"},
+    )
+
+
+@app.get("/templates/google-sheets-leads.csv", tags=["exports"])
+def google_sheets_template(user: dict = Depends(current_user)) -> Response:
+    return Response(
+        content=google_sheets_template_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=nexuslead_google_sheets_template.csv"},
     )
 
 
