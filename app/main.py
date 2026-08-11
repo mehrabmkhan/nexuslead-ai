@@ -47,6 +47,7 @@ BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(os.getenv("NEXUSLEAD_UPLOAD_DIR", "uploads"))
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 SESSION_COOKIE = "nexuslead_session"
+SECURE_COOKIES = os.getenv("NEXUSLEAD_SECURE_COOKIES", "").lower() in {"1", "true", "yes", "on"}
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -209,7 +210,7 @@ def login(email: str = Form(...), password: str = Form(...)) -> RedirectResponse
     if not user:
         return RedirectResponse("/login?error=Invalid+credentials", status_code=303)
     response = RedirectResponse("/dashboard", status_code=303)
-    response.set_cookie(SESSION_COOKIE, sign_session(user["id"]), httponly=True, samesite="lax")
+    response.set_cookie(SESSION_COOKIE, sign_session(user["id"]), httponly=True, samesite="lax", secure=SECURE_COOKIES)
     return response
 
 
