@@ -2,11 +2,13 @@
 
 NexusLead AI is a deployed FastAPI MVP for an internal B2B lead operations workflow. It is designed to show how a NextRNS-style BPO team could manage lead intake, qualification, client matching, outreach draft review, task queues, exports, and operational visibility.
 
-The current deployment is intentionally lightweight:
+The current architecture supports lightweight local development and a production-style AWS deployment:
 
 - FastAPI backend and server-rendered Jinja2 UI
-- SQLite for local/demo data
-- Render Free web service for public access
+- SQLite for local development
+- PostgreSQL for AWS production
+- Amazon EC2 for primary public access
+- Render Free web service as fallback public access
 - Role-based sessions for Admin, Manager, and Agent workflows
 - Deterministic scoring and matching rules rather than external AI dependencies
 - Console/mock provider for notification readiness
@@ -17,13 +19,13 @@ The current deployment is intentionally lightweight:
 ```mermaid
 sequenceDiagram
     participant User as Admin / Manager / Agent
-    participant Render as Render Web Service
+    participant Host as EC2 Docker Host
     participant App as FastAPI App
     participant Services as Services Layer
-    participant DB as SQLite MVP DB
+    participant DB as PostgreSQL
 
-    User->>Render: Open live URL
-    Render->>App: GET /
+    User->>Host: Open AWS HTTP URL
+    Host->>App: GET /
     App-->>User: Login UI or dashboard redirect
     User->>App: Submit credentials
     App->>Services: Authenticate and sign session
@@ -40,19 +42,24 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    U[Admin / Manager / Agent] --> R[Render Free Web Service]
-    R --> F[FastAPI App]
+    U[Admin / Manager / Agent] --> EC2[Amazon EC2 t3.micro]
+    EC2 --> DOCKER[Docker Runtime]
+    DOCKER --> F[FastAPI App]
     F --> UI[Jinja2 SaaS UI]
     F --> API[Role-Aware API Routes]
     API --> S[Services Layer]
-    S --> DB[(SQLite MVP Database)]
+    DOCKER --> DB[(PostgreSQL Docker Volume)]
     S --> CSV[CSV Exports]
     S --> REP[Daily Report]
     S --> AUD[Audit Events]
     S --> JOB[Background Job Registry]
     S --> MAIL[Console Email Provider]
     F --> OBS[/health /metrics /docs]
-    GH[GitHub main branch] --> R
+    GH[GitHub main branch] --> GA[GitHub Actions]
+    GA --> ECR[Amazon ECR]
+    ECR --> EC2
+    F --> CW[CloudWatch Logs]
+    RF[Render Fallback] --> F
 ```
 
 ## Role Model
@@ -65,7 +72,7 @@ flowchart LR
 
 ## Data Model Summary
 
-The SQLite MVP schema includes:
+The application schema includes:
 
 - `users`
 - `clients`
@@ -80,4 +87,4 @@ The SQLite MVP schema includes:
 
 This is a deployed MVP and portfolio project, not a claim of production customer adoption. The app uses approved sample data and avoids real scraping, automated commenting, scraping bypasses, automated outreach sending, and real personal data collection.
 
-Future production hardening should add PostgreSQL migrations, durable upload storage, managed secrets, provider-backed email, calendar integrations, observability, and a data retention policy.
+Future production hardening should add durable upload storage, managed secret rotation, provider-backed email, calendar integrations, richer observability, and a data retention policy.

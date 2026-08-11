@@ -2,13 +2,15 @@
 
 NexusLead AI is a deployed internal B2B lead operations MVP for NextRNS-style BPO teams. It gives admins, managers, and lead generation specialists a shared workspace for lead intake, qualification, client matching, human-reviewed outreach drafts, follow-up tasks, reporting, and CSV exports.
 
-This repository is a working portfolio MVP, not a claim of production customer adoption. The live app uses approved sample data and is intended to demonstrate product, engineering, deployment, and operations readiness.
+This repository is a working portfolio MVP, not a claim of production customer adoption. The live app uses approved sample data and shows product, engineering, deployment, and operations readiness.
 
-## Live Demo
+## Live Deployments
 
-Live application: https://nexuslead-ai.onrender.com
+AWS live application: http://ec2-99-79-66-16.ca-central-1.compute.amazonaws.com
 
-Demo credentials:
+Render fallback: https://nexuslead-ai.onrender.com
+
+Review credentials:
 
 | Role | Email | Password | What to review |
 | --- | --- | --- | --- |
@@ -18,16 +20,57 @@ Demo credentials:
 
 Useful live routes:
 
-- App entry: https://nexuslead-ai.onrender.com
-- Login: https://nexuslead-ai.onrender.com/login
-- Dashboard: https://nexuslead-ai.onrender.com/dashboard
-- API docs: https://nexuslead-ai.onrender.com/docs
-- Health check: https://nexuslead-ai.onrender.com/health
-- Metrics: https://nexuslead-ai.onrender.com/metrics
+- App entry: `/`
+- Login: `/login`
+- Dashboard: `/dashboard`
+- API docs: `/docs`
+- Health check: `/health`
+- Metrics: `/metrics`
+
+## AWS Live Deployment
+
+NexusLead AI is deployed on AWS using a low-cost single-instance EC2 path:
+
+```mermaid
+flowchart LR
+    User[User] --> EC2[Amazon EC2 t3.micro]
+    EC2 --> Docker[Docker runtime]
+    Docker --> API[FastAPI + Jinja2 SaaS app]
+    Docker --> PG[(PostgreSQL container volume)]
+    API --> CW[CloudWatch logs]
+    GitHub[GitHub] --> Actions[GitHub Actions]
+    Actions --> ECR[Amazon ECR]
+    ECR --> EC2
+```
+
+Architecture summary:
+
+- GitHub Actions runs tests, builds a multi-arch Docker image, and pushes commit SHA plus `latest` tags to Amazon ECR.
+- One `t3.micro` EC2 instance in `ca-central-1` runs Docker, the FastAPI app container, and a PostgreSQL container backed by a named Docker volume.
+- A 10-minute EC2 cron job refreshes ECR auth, pulls `latest`, and restarts the app container without replacing the database volume.
+- CloudWatch captures application runtime logs.
+- Render remains configured as a fallback deployment.
+
+Technology stack:
+
+- FastAPI
+- Jinja2
+- SQLite for local development
+- PostgreSQL for production
+- Alembic migrations
+- Docker
+- Amazon ECR
+- Amazon EC2
+- CloudWatch
+- GitHub Actions OIDC
+
+AWS deployment docs: [docs/aws-deployment.md](docs/aws-deployment.md)
+
+AWS architecture diagram: [diagrams/aws-architecture.mmd](diagrams/aws-architecture.mmd)
 
 ## Screenshots
 
-### Login and Demo Entry
+### Login
 
 ![NexusLead AI login screen](screenshots/login.png)
 
@@ -37,7 +80,7 @@ Useful live routes:
 
 ## Feature Walkthrough
 
-1. Sign in with one of the demo roles.
+1. Sign in with one of the review roles.
 2. Review KPI cards for active leads, high-priority leads, follow-ups, conversion, and estimated opportunity value.
 3. Use search and filters to narrow the lead pipeline by client, city, business type, priority, and status.
 4. Create a lead through the lead intake form.
@@ -77,7 +120,8 @@ Outreach remains human-reviewed before sending. The app does not implement auto-
 - Daily report endpoint
 - Basic health and metrics endpoints
 - FastAPI Swagger/OpenAPI docs
-- Render Free deployment with `render.yaml`
+- AWS EC2 deployment path with ECR and PostgreSQL
+- Render Free fallback deployment with `render.yaml`
 
 ## Architecture
 
@@ -98,31 +142,32 @@ flowchart LR
 
 ## Deployment Architecture
 
-NexusLead AI is deployed as a server-rendered FastAPI app on Render Free.
+NexusLead AI is designed to run as a server-rendered FastAPI app on a low-cost AWS EC2 Docker host, with Render kept as a fallback.
 
 | Component | Current MVP implementation |
 | --- | --- |
-| Hosting | Render Free Web Service |
-| URL | `https://nexuslead-ai.onrender.com` |
-| Runtime | Python |
-| Build command | `pip install -r requirements.txt` |
-| Start command | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Primary hosting | Amazon EC2 `t3.micro` |
+| Fallback hosting | Render Free Web Service |
+| Runtime | Docker container |
+| Build | GitHub Actions Docker build |
+| Production start command | `scripts/start.sh` |
 | Health check | `/health` |
 | UI | Jinja2 templates served by FastAPI |
 | API docs | FastAPI Swagger/OpenAPI at `/docs` |
-| Data store | SQLite file for MVP/demo use |
-| CI/CD | GitHub Actions tests plus Render deploys from GitHub commits |
-| Future DB path | PostgreSQL through Neon, Supabase, or Render PostgreSQL after migrations |
+| Local data store | SQLite |
+| Production data store | PostgreSQL container volume through `DATABASE_URL` |
+| CI/CD | GitHub Actions tests, multi-arch Docker build, ECR push; EC2 cron pulls `latest` |
 
-Render environment variables:
+Environment variables:
 
 | Variable | Purpose |
 | --- | --- |
 | `NEXUSLEAD_SESSION_SECRET` | Signs login sessions |
 | `NEXUSLEAD_UPLOAD_DIR` | Local upload metadata directory, defaults to `uploads` |
-| `NEXUSLEAD_EMAIL_PROVIDER` | `console` for local/demo notification behavior |
-| `PORT` | Provided by Render |
-| `DATABASE_URL` | Future PostgreSQL connection string after migrations |
+| `NEXUSLEAD_EMAIL_PROVIDER` | `console` for local notification behavior |
+| `PORT` | Container port, defaults to `8000` |
+| `DATABASE_URL` | PostgreSQL connection string in AWS production |
+| `LOG_LEVEL` | Runtime logging level for CloudWatch |
 
 ## Local Setup
 
@@ -139,7 +184,7 @@ Open:
 http://localhost:8000
 ```
 
-Default local users are the same as the live demo credentials.
+Default local users are the same as the live review credentials.
 
 ## Testing
 
@@ -159,20 +204,20 @@ Open `http://localhost:8000`.
 
 ## Deployment Instructions
 
-Render is the primary deployment target for this server-rendered FastAPI MVP.
+AWS EC2 is the primary deployment target.
 
 1. Push changes to `main`.
-2. Render deploys from the GitHub repository.
-3. Validate `render.yaml` if deployment settings change.
-4. Confirm `https://nexuslead-ai.onrender.com/health` returns `status: ready`.
-5. Confirm the public root URL serves the login UI.
-6. Confirm Admin, Manager, and Agent demo accounts can access the dashboard.
+2. GitHub Actions runs tests.
+3. GitHub Actions builds and pushes the Docker image to ECR.
+4. The EC2 deployment cron pulls `latest` and restarts the app container.
+5. Confirm the AWS `/health` endpoint returns `status: ready`.
+6. Confirm Admin, Manager, and Agent accounts can access the dashboard.
+7. Keep Render available as a fallback by preserving `render.yaml`.
 
 ## Data And Production Notes
 
-The deployed MVP uses SQLite on Render's ephemeral filesystem. That is acceptable for a portfolio demo but not for durable production data. A production path should add:
+Local development uses SQLite. AWS production should use PostgreSQL with Alembic migrations. Additional production hardening items:
 
-- PostgreSQL with migrations, for example Neon, Supabase, or Render PostgreSQL
 - Durable object storage for uploads
 - Secret rotation and role administration policies
 - Email provider integration such as SendGrid or AWS SES
@@ -187,6 +232,7 @@ Real integrations should use approved APIs, CRM imports, Google Sheets, manual e
 
 - [Architecture](docs/architecture.md)
 - [Deployment](docs/deployment.md)
+- [AWS deployment](docs/aws-deployment.md)
 - [Operations, jobs, email, calendar, monitoring, and migrations](docs/operations.md)
 - [Google Sheets and n8n workflows](docs/n8n-expansion.md)
 - [Compliance model](docs/compliance.md)

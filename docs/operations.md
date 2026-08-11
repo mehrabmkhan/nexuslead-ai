@@ -8,19 +8,17 @@ NexusLead AI is an internal B2B lead operations platform for NextRNS-style BPO t
 - Manager: lead review, outreach draft approval, agent assignment, analytics review.
 - Agent: lead creation, status updates, notes, attachments, and assigned task export.
 
-## Database And Migration Path
+## Database And Migrations
 
-Local development uses SQLite and startup table initialization in `app/database.py`.
+Local development uses SQLite and startup table initialization in `app/database.py`. AWS production uses PostgreSQL through `DATABASE_URL`.
 
-Production should use PostgreSQL with a migration tool before turning on a hosted database URL:
+Alembic is included for production schema management:
 
-1. Install `alembic` and `psycopg[binary]`.
-2. Create Alembic migrations from the schema in `app/database.py`.
-3. Run migrations against a free hosted database from Neon, Supabase, or Render PostgreSQL.
-4. Set `DATABASE_URL` in the hosting environment.
-5. Add a production driver adapter that uses PostgreSQL placeholders and transaction handling.
+```bash
+alembic upgrade head
+```
 
-The current code detects PostgreSQL-style `DATABASE_URL` values and documents the intended production path so local SQLite behavior remains stable.
+The Docker start script runs migrations automatically when `DATABASE_URL` is set, then starts Uvicorn. The app keeps SQLite as the no-friction local backend and uses a psycopg adapter for PostgreSQL deployments.
 
 ## Background Jobs
 

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import hmac
+import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -12,7 +14,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 from fastapi.templating import Jinja2Templates
 
 from .background import scheduler_status
-from .database import database_summary, initialize_database
+from .database import database_health, initialize_database
 from .services import (
     analytics,
     approve_outreach,
@@ -45,6 +47,11 @@ BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(os.getenv("NEXUSLEAD_UPLOAD_DIR", "uploads"))
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 SESSION_COOKIE = "nexuslead_session"
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("nexuslead")
 
 
 def bootstrap_data() -> None:
@@ -77,6 +84,26 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def request_logging(request: Request, call_next):
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+        logger.exception("request_failed method=%s path=%s elapsed_ms=%s", request.method, request.url.path, elapsed_ms)
+        raise
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+    logger.info(
+        "request_complete method=%s path=%s status=%s elapsed_ms=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
+    )
+    return response
+
+
 def session_secret() -> str:
     return os.getenv("NEXUSLEAD_SESSION_SECRET", "local-development-secret")
 
@@ -99,7 +126,7 @@ def read_session(token: str | None) -> dict | None:
     expected = hmac.new(session_secret().encode(), user_id.encode(), sha256).hexdigest()
     if not hmac.compare_digest(signature, expected):
         return None
-    return row("SELECT id, email, name, role, active FROM users WHERE id = ? AND active = 1", (user_id,))
+    return row("SELECT id, email, name, role, active FROM users WHERE id = ? AND active = TRUE", (user_id,))
 
 
 def current_user(request: Request) -> dict:
@@ -134,11 +161,12 @@ def no_store(response: Response) -> Response:
 
 
 def health_payload() -> dict:
+    database = database_health()
     return {
         "product": "NexusLead AI",
         "platform": "Internal B2B lead operations platform for NextRNS-style BPO teams",
-        "status": "ready",
-        "database": database_summary(),
+        "status": "ready" if database["status"] == "ok" else "degraded",
+        "database": database,
     }
 
 

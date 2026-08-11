@@ -119,13 +119,13 @@
           <div class="signal"><strong>Reviewed</strong><span>Human-approved outreach</span></div>
         </div>
       </div>
-      <div class="status"><span class="dot"></span><span>Public demo environment ready</span></div>
+      <div class="status"><span class="dot"></span><span>Public review environment ready</span></div>
     </section>
 
     <section class="panel" aria-label="Sign in">
       <div>
         <h2>Sign in to the operations dashboard</h2>
-        <p>Use any demo account below to review the role-based SaaS workflow.</p>
+        <p>Use any review account below to explore the role-based SaaS workflow.</p>
       </div>
       {% if error %}<div class="error">{{ error }}</div>{% endif %}
       <form method="post" action="/login">
@@ -138,12 +138,12 @@
         <button type="submit">Open dashboard</button>
       </form>
       <div class="credentials">
-        <h3>Demo credentials</h3>
+        <h3>Review credentials</h3>
         <div class="credential-row"><strong>Admin</strong><code>admin@nextrns.local / admin123</code></div>
         <div class="credential-row"><strong>Manager</strong><code>manager@nextrns.local / manager123</code></div>
         <div class="credential-row"><strong>Agent</strong><code>agent@nextrns.local / agent123</code></div>
       </div>
-      <p class="note">This public demo uses approved sample data and keeps outreach drafts human-reviewed before use.</p>
+      <p class="note">This public environment uses approved sample data and keeps outreach drafts human-reviewed before use.</p>
     </section>
   </main>
 </body>

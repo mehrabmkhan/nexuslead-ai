@@ -1,6 +1,6 @@
 # Compliance Model
 
-NexusLead AI is built as a synthetic demo.
+NexusLead AI is built as an internal lead operations MVP with approved sample data.
 
 The application does not:
 

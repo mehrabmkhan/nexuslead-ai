@@ -36,7 +36,7 @@ def test_root_renders_login_for_public_visitors(client):
 
     assert response.status_code == 200
     assert "NexusLead AI" in response.text
-    assert "Demo credentials" in response.text
+    assert "Review credentials" in response.text
     assert response.headers["cache-control"].startswith("no-store")
 
 

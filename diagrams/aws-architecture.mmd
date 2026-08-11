@@ -1,0 +1,15 @@
+flowchart LR
+    User[Admin / Manager / Agent] --> HTTP[EC2 public HTTP URL]
+    HTTP --> EC2[Amazon EC2 t3.micro<br/>ca-central-1]
+    EC2 --> Docker[Docker runtime]
+    Docker --> App[FastAPI container<br/>NexusLead AI]
+    Docker --> DB[(PostgreSQL container<br/>nexuslead-postgres volume)]
+    Docker --> Uploads[(Uploads volume)]
+    App --> Logs[CloudWatch logs<br/>/nexuslead-ai/ec2]
+
+    GitHub[GitHub repository] --> Actions[GitHub Actions CI/CD]
+    Actions --> ECR[Amazon ECR<br/>nexuslead-ai]
+    ECR --> Puller[EC2 deploy cron<br/>pull latest every 10 min]
+    Puller --> App
+
+    EC2 --> Health[/health and /metrics/]

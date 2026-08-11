@@ -111,7 +111,7 @@ def audit_log(actor: str, action: str, entity_type: str, entity_id: int | None, 
 
 
 def authenticate(email: str, password: str) -> dict | None:
-    user = row("SELECT * FROM users WHERE lower(email) = lower(?) AND active = 1", (email.strip(),))
+    user = row("SELECT * FROM users WHERE lower(email) = lower(?) AND active = TRUE", (email.strip(),))
     if user and verify_password(password, user["password_hash"]):
         audit_log(user["name"], "auth.login", "user", user["id"], "User signed in")
         return user
@@ -119,7 +119,7 @@ def authenticate(email: str, password: str) -> dict | None:
 
 
 def list_users(active_only: bool = True) -> list[dict]:
-    where = "WHERE active = 1" if active_only else ""
+    where = "WHERE active = TRUE" if active_only else ""
     return rows(f"SELECT id, email, name, role, active, created_at FROM users {where} ORDER BY role, name")
 
 
@@ -131,13 +131,14 @@ def create_user(payload: dict, actor: str) -> int:
         cursor = connection.execute(
             """
             INSERT INTO users (email, name, role, password_hash, active)
-            VALUES (?, ?, ?, ?, 1)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 payload["email"].strip().lower(),
                 payload["name"].strip(),
                 role,
                 hash_password(payload.get("password") or "changeme123"),
+                True,
             ),
         )
         user_id = int(cursor.lastrowid)
@@ -338,10 +339,13 @@ def create_client(payload: dict, actor: str = "System") -> int:
 def update_lead_status(lead_id: int, status: str, note: str, actor: str) -> None:
     if status not in PIPELINE_STATUSES:
         raise ValueError("Unsupported lead status")
+    lead = row("SELECT notes FROM leads WHERE id = ?", (lead_id,))
+    existing_notes = lead["notes"] if lead else ""
+    updated_notes = "\n".join(item for item in [existing_notes, note] if item).strip()
     with connect() as connection:
         connection.execute(
-            "UPDATE leads SET status = ?, notes = trim(notes || char(10) || ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (status, note, lead_id),
+            "UPDATE leads SET status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, updated_notes, lead_id),
         )
         connection.execute(
             "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
@@ -452,7 +456,7 @@ def create_review_response(client_id: int, rating: int, text: str, source: str =
             INSERT INTO reviews (client_id, source, rating, text, sentiment, response_draft, attention_required)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (client_id, source, rating, text, sentiment, draft_review_response(sentiment), 1 if sentiment == "negative" else 0),
+            (client_id, source, rating, text, sentiment, draft_review_response(sentiment), sentiment == "negative"),
         )
         connection.commit()
         return int(cursor.lastrowid)
