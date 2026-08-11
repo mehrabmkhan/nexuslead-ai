@@ -94,8 +94,9 @@ def main() -> None:
     leads = json_get(admin, "/api/leads")
     lead = next((item for item in leads if item["context"] == context), None)
     require(lead is not None, "lead creation failed")
-    require(int(lead["score"]) > 0, "lead scoring failed")
-    require(lead["matched_client"], "client matching failed")
+    score = int(lead.get("urgency") or 0) + int(lead.get("client_fit") or 0)
+    require(score > 0 and lead.get("priority"), f"lead scoring failed: {lead}")
+    require(lead.get("client_name"), f"client matching failed: {lead}")
 
     lead_id = str(lead["id"])
     manager.post(f"/leads/{lead_id}/assign", {"owner": "Lead Operations Agent"})
