@@ -3,7 +3,8 @@
 NexusLead AI is deployed on AWS EC2 as the primary deployment and Render Free as the fallback deployment:
 
 ```text
-AWS EC2: http://ec2-99-79-66-16.ca-central-1.compute.amazonaws.com
+AWS EC2 HTTPS: https://99-79-66-16.sslip.io
+AWS EC2 HTTP fallback: http://ec2-99-79-66-16.ca-central-1.compute.amazonaws.com
 Render fallback: https://nexuslead-ai.onrender.com
 ```
 
@@ -17,7 +18,7 @@ Use the Dockerfile with Amazon ECR and the single-instance EC2 bootstrap in `scr
 | Image repository | Amazon ECR `nexuslead-ai` |
 | Container port | `8000` |
 | Start command | `scripts/start.sh` |
-| Health check path | `/health` |
+| Health check path | `/health` over HTTPS |
 | Logs | CloudWatch log group `/nexuslead-ai/ec2` |
 | Database | PostgreSQL through `DATABASE_URL`, backed by Docker volume `nexuslead-postgres` |
 
@@ -55,13 +56,14 @@ The app is a server-rendered FastAPI service, so Render/Fly.io style hosting rem
 | `NEXUSLEAD_EMAIL_PROVIDER` | `console` for local notification behavior |
 | `PORT` | Provided by Render |
 | `DATABASE_URL` | PostgreSQL connection string in production |
+| `NEXUSLEAD_SECURE_COOKIES` | `true` when HTTPS is active |
 | `LOG_LEVEL` | Runtime logging level |
 
 ## Verification Checklist
 
 After each deployment:
 
-1. Open `http://ec2-99-79-66-16.ca-central-1.compute.amazonaws.com` and confirm the login UI appears.
+1. Open `https://99-79-66-16.sslip.io` and confirm the login UI appears.
 2. Confirm `/health` returns `status: ready`.
 3. Sign in as Admin, Manager, and Agent.
 4. Confirm the dashboard loads for each role.

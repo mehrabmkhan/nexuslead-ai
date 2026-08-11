@@ -1,12 +1,16 @@
 # NexusLead AI
 
+Intelligent B2B Lead Operations Platform
+
 NexusLead AI is a deployed internal B2B lead operations MVP for NextRNS-style BPO teams. It gives admins, managers, and lead generation specialists a shared workspace for lead intake, qualification, client matching, human-reviewed outreach drafts, follow-up tasks, reporting, and CSV exports.
 
 This repository is a working portfolio MVP, not a claim of production customer adoption. The live app uses approved sample data and shows product, engineering, deployment, and operations readiness.
 
 ## Live Deployments
 
-AWS live application: http://ec2-99-79-66-16.ca-central-1.compute.amazonaws.com
+AWS live application: https://99-79-66-16.sslip.io
+
+AWS HTTP fallback: http://ec2-99-79-66-16.ca-central-1.compute.amazonaws.com
 
 Render fallback: https://nexuslead-ai.onrender.com
 
@@ -33,22 +37,27 @@ NexusLead AI is deployed on AWS using a low-cost single-instance EC2 path:
 
 ```mermaid
 flowchart LR
-    User[User] --> EC2[Amazon EC2 t3.micro]
+    User[User] --> HTTPS[Caddy HTTPS proxy]
+    HTTPS --> EC2[Amazon EC2 t3.micro]
     EC2 --> Docker[Docker runtime]
     Docker --> API[FastAPI + Jinja2 SaaS app]
     Docker --> PG[(PostgreSQL container volume)]
     API --> CW[CloudWatch logs]
     GitHub[GitHub] --> Actions[GitHub Actions]
-    Actions --> ECR[Amazon ECR]
-    ECR --> EC2
+    Actions --> OIDC[GitHub OIDC]
+    OIDC --> ECR[Amazon ECR]
+    ECR --> SSM[AWS Systems Manager]
+    SSM --> EC2
 ```
 
 Architecture summary:
 
-- GitHub Actions runs tests, builds a multi-arch Docker image, and pushes commit SHA plus `latest` tags to Amazon ECR.
-- One `t3.micro` EC2 instance in `ca-central-1` runs Docker, the FastAPI app container, and a PostgreSQL container backed by a named Docker volume.
-- A 10-minute EC2 cron job refreshes ECR auth, pulls `latest`, and restarts the app container without replacing the database volume.
-- CloudWatch captures application runtime logs.
+- GitHub Actions authenticates to AWS with OIDC, runs tests, builds a multi-arch Docker image, and pushes commit SHA plus `latest` tags to Amazon ECR.
+- AWS Systems Manager runs the EC2 deploy script: pull image, start a candidate container, run migrations, health-check it, promote it, and keep PostgreSQL data intact.
+- One `t3.micro` EC2 instance in `ca-central-1` runs Docker, Caddy, the FastAPI app container, and a PostgreSQL container backed by a named Docker volume.
+- Caddy provides HTTPS at `https://99-79-66-16.sslip.io` and proxies to the internal FastAPI container.
+- CloudWatch captures application runtime logs with 14-day retention.
+- Daily compressed `pg_dump` backups are stored on the EC2 host with seven-day retention.
 - Render remains configured as a fallback deployment.
 
 Technology stack:
@@ -61,6 +70,7 @@ Technology stack:
 - Docker
 - Amazon ECR
 - Amazon EC2
+- AWS Systems Manager
 - CloudWatch
 - GitHub Actions OIDC
 
@@ -120,7 +130,7 @@ Outreach remains human-reviewed before sending. The app does not implement auto-
 - Daily report endpoint
 - Basic health and metrics endpoints
 - FastAPI Swagger/OpenAPI docs
-- AWS EC2 deployment path with ECR and PostgreSQL
+- AWS EC2 deployment path with HTTPS, ECR, OIDC, SSM, CloudWatch, and PostgreSQL
 - Render Free fallback deployment with `render.yaml`
 
 ## Architecture
@@ -156,7 +166,7 @@ NexusLead AI is designed to run as a server-rendered FastAPI app on a low-cost A
 | API docs | FastAPI Swagger/OpenAPI at `/docs` |
 | Local data store | SQLite |
 | Production data store | PostgreSQL container volume through `DATABASE_URL` |
-| CI/CD | GitHub Actions tests, multi-arch Docker build, ECR push; EC2 cron pulls `latest` |
+| CI/CD | GitHub Actions tests, OIDC auth, multi-arch Docker build, ECR push, SSM deploy, HTTPS health check |
 
 Environment variables:
 
@@ -167,6 +177,7 @@ Environment variables:
 | `NEXUSLEAD_EMAIL_PROVIDER` | `console` for local notification behavior |
 | `PORT` | Container port, defaults to `8000` |
 | `DATABASE_URL` | PostgreSQL connection string in AWS production |
+| `NEXUSLEAD_SECURE_COOKIES` | Enables Secure cookies behind HTTPS |
 | `LOG_LEVEL` | Runtime logging level for CloudWatch |
 
 ## Local Setup
@@ -209,10 +220,11 @@ AWS EC2 is the primary deployment target.
 1. Push changes to `main`.
 2. GitHub Actions runs tests.
 3. GitHub Actions builds and pushes the Docker image to ECR.
-4. The EC2 deployment cron pulls `latest` and restarts the app container.
-5. Confirm the AWS `/health` endpoint returns `status: ready`.
-6. Confirm Admin, Manager, and Agent accounts can access the dashboard.
-7. Keep Render available as a fallback by preserving `render.yaml`.
+4. GitHub Actions sends an SSM command to EC2.
+5. EC2 pulls the image, promotes the healthy candidate container, and keeps the PostgreSQL volume.
+6. Confirm the AWS `/health` endpoint returns `status: ready`.
+7. Confirm Admin, Manager, and Agent accounts can access the dashboard.
+8. Keep Render available as a fallback by preserving `render.yaml`.
 
 ## Data And Production Notes
 
@@ -233,6 +245,7 @@ Real integrations should use approved APIs, CRM imports, Google Sheets, manual e
 - [Architecture](docs/architecture.md)
 - [Deployment](docs/deployment.md)
 - [AWS deployment](docs/aws-deployment.md)
+- [Production readiness](docs/production-readiness.md)
 - [Operations, jobs, email, calendar, monitoring, and migrations](docs/operations.md)
 - [Google Sheets and n8n workflows](docs/n8n-expansion.md)
 - [Compliance model](docs/compliance.md)

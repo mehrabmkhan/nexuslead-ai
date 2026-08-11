@@ -7,7 +7,7 @@ The current architecture supports lightweight local development and a production
 - FastAPI backend and server-rendered Jinja2 UI
 - SQLite for local development
 - PostgreSQL for AWS production
-- Amazon EC2 for primary public access
+- Amazon EC2 and Caddy HTTPS for primary public access
 - Render Free web service as fallback public access
 - Role-based sessions for Admin, Manager, and Agent workflows
 - Deterministic scoring and matching rules rather than external AI dependencies
@@ -19,12 +19,14 @@ The current architecture supports lightweight local development and a production
 ```mermaid
 sequenceDiagram
     participant User as Admin / Manager / Agent
+    participant Proxy as Caddy HTTPS Proxy
     participant Host as EC2 Docker Host
     participant App as FastAPI App
     participant Services as Services Layer
     participant DB as PostgreSQL
 
-    User->>Host: Open AWS HTTP URL
+    User->>Proxy: Open AWS HTTPS URL
+    Proxy->>Host: Reverse proxy request
     Host->>App: GET /
     App-->>User: Login UI or dashboard redirect
     User->>App: Submit credentials
@@ -42,7 +44,8 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    U[Admin / Manager / Agent] --> EC2[Amazon EC2 t3.micro]
+    U[Admin / Manager / Agent] --> TLS[Caddy HTTPS Proxy]
+    TLS --> EC2[Amazon EC2 t3.micro]
     EC2 --> DOCKER[Docker Runtime]
     DOCKER --> F[FastAPI App]
     F --> UI[Jinja2 SaaS UI]
@@ -56,7 +59,10 @@ flowchart LR
     S --> MAIL[Console Email Provider]
     F --> OBS[/health /metrics /docs]
     GH[GitHub main branch] --> GA[GitHub Actions]
-    GA --> ECR[Amazon ECR]
+    GA --> OIDC[GitHub OIDC]
+    OIDC --> ECR[Amazon ECR]
+    GA --> SSM[AWS Systems Manager]
+    SSM --> EC2
     ECR --> EC2
     F --> CW[CloudWatch Logs]
     RF[Render Fallback] --> F

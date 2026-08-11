@@ -1,15 +1,19 @@
 flowchart LR
-    User[Admin / Manager / Agent] --> HTTP[EC2 public HTTP URL]
-    HTTP --> EC2[Amazon EC2 t3.micro<br/>ca-central-1]
+    User[Admin / Manager / Agent] --> HTTPS[HTTPS<br/>99-79-66-16.sslip.io]
+    HTTPS --> Caddy[Caddy reverse proxy<br/>ports 80 and 443]
+    Caddy --> EC2[Amazon EC2 t3.micro<br/>ca-central-1]
     EC2 --> Docker[Docker runtime]
     Docker --> App[FastAPI container<br/>NexusLead AI]
     Docker --> DB[(PostgreSQL container<br/>nexuslead-postgres volume)]
     Docker --> Uploads[(Uploads volume)]
+    Docker --> Backups[(Daily pg_dump backups<br/>7-day retention)]
     App --> Logs[CloudWatch logs<br/>/nexuslead-ai/ec2]
 
     GitHub[GitHub repository] --> Actions[GitHub Actions CI/CD]
-    Actions --> ECR[Amazon ECR<br/>nexuslead-ai]
-    ECR --> Puller[EC2 deploy cron<br/>pull latest every 10 min]
-    Puller --> App
+    Actions --> OIDC[GitHub OIDC<br/>least-privilege IAM role]
+    OIDC --> ECR[Amazon ECR<br/>nexuslead-ai]
+    OIDC --> SSM[AWS Systems Manager<br/>RunShellScript deploy]
+    SSM --> EC2
+    ECR --> App
 
     EC2 --> Health[/health and /metrics/]

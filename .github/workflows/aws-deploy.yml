@@ -2,6 +2,11 @@ name: aws-deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      run_live_acceptance:
+        description: "Run mutating live acceptance checks against the AWS URL"
+        required: false
+        default: "false"
   push:
     branches: ["main"]
 
@@ -120,6 +125,12 @@ jobs:
             sleep 10
           done
           curl -fsS "https://$NEXUSLEAD_HTTPS_DOMAIN/health"
+
+      - name: Run live acceptance checks
+        if: env.AWS_ROLE_ARN != '' && github.event_name == 'workflow_dispatch' && github.event.inputs.run_live_acceptance == 'true'
+        env:
+          NEXUSLEAD_LIVE_URL: https://99-79-66-16.sslip.io
+        run: python scripts/live_acceptance.py
 
       - name: AWS secret note
         if: env.AWS_ROLE_ARN == ''

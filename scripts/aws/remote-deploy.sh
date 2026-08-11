@@ -145,6 +145,25 @@ docker run -d --name nexuslead-proxy --network nexuslead-net --restart unless-st
   -v nexuslead-caddy-config:/config \
   caddy:2-alpine >/dev/null
 
+cat > "$APP_DIR/backup-postgres.sh" <<'BACKUP'
+#!/bin/bash
+set -euo pipefail
+
+BACKUP_DIR="/opt/nexuslead/backups"
+mkdir -p "$BACKUP_DIR"
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+docker exec nexuslead-postgres pg_dump -U nexuslead -d nexuslead | gzip > "$BACKUP_DIR/nexuslead-$timestamp.sql.gz"
+find "$BACKUP_DIR" -type f -name 'nexuslead-*.sql.gz' -mtime +7 -delete
+echo "NEXUSLEAD_BACKUP_OK $BACKUP_DIR/nexuslead-$timestamp.sql.gz"
+BACKUP
+chmod +x "$APP_DIR/backup-postgres.sh"
+cat > /etc/cron.d/nexuslead-backup <<'CRON'
+SHELL=/bin/bash
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/bin
+17 6 * * * root /opt/nexuslead/backup-postgres.sh >> /var/log/nexuslead-backup.log 2>&1
+CRON
+"$APP_DIR/backup-postgres.sh"
+
 for _ in $(seq 1 40); do
   if docker exec nexuslead-proxy wget -qO- "http://nexuslead-ai:8000/health" | grep -q '"status":"ready"'; then
     echo "NEXUSLEAD_DEPLOY_OK image=$IMAGE https_domain=$HTTPS_DOMAIN"
