@@ -11,6 +11,7 @@ permissions:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION || 'ca-central-1' }}
+  AWS_ROLE_ARN: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
   ECR_REPOSITORY: nexuslead-ai
 
 jobs:
@@ -31,19 +32,23 @@ jobs:
         run: pytest -q
 
       - name: Configure AWS credentials
+        if: env.AWS_ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
+        if: env.AWS_ROLE_ARN != ''
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set up Docker Buildx
+        if: env.AWS_ROLE_ARN != ''
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push multi-arch Docker image
+        if: env.AWS_ROLE_ARN != ''
         uses: docker/build-push-action@v6
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -57,3 +62,7 @@ jobs:
 
       - name: Deployment note
         run: echo "EC2 host refreshes ECR latest through /opt/nexuslead/deploy.sh cron."
+
+      - name: AWS secret note
+        if: env.AWS_ROLE_ARN == ''
+        run: echo "AWS deploy skipped because AWS_GITHUB_ACTIONS_ROLE_ARN is not configured."
