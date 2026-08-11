@@ -91,8 +91,23 @@ jobs:
             --parameters "$parameters" \
             --query "Command.CommandId" \
             --output text)"
-          aws ssm wait command-executed --region "$AWS_REGION" --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID"
-          aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" --query "{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}" --output json
+          deadline=$((SECONDS + 900))
+          while true; do
+            status="$(aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" --query "Status" --output text 2>/dev/null || echo Pending)"
+            case "$status" in
+              Success|Cancelled|TimedOut|Failed)
+                aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" --query "{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}" --output json
+                test "$status" = "Success"
+                exit $?
+                ;;
+            esac
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" --query "{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}" --output json || true
+              echo "SSM deploy command did not complete within 15 minutes"
+              exit 1
+            fi
+            sleep 15
+          done
 
       - name: Verify HTTPS health
         if: env.AWS_ROLE_ARN != ''
