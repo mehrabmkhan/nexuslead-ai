@@ -84,6 +84,15 @@ def initialize_database(seed: bool = True) -> None:
                 max_budget INTEGER NOT NULL,
                 contact_email TEXT NOT NULL DEFAULT '',
                 notes TEXT NOT NULL DEFAULT '',
+                services TEXT NOT NULL DEFAULT '',
+                target_customer TEXT NOT NULL DEFAULT '',
+                target_industries TEXT NOT NULL DEFAULT '',
+                service_categories TEXT NOT NULL DEFAULT '',
+                keywords TEXT NOT NULL DEFAULT '',
+                negative_keywords TEXT NOT NULL DEFAULT '',
+                preferred_lead_types TEXT NOT NULL DEFAULT '',
+                outreach_preferences TEXT NOT NULL DEFAULT '',
+                qualification_rules TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
@@ -109,6 +118,17 @@ def initialize_database(seed: bool = True) -> None:
                 attachment_name TEXT NOT NULL DEFAULT '',
                 attachment_path TEXT NOT NULL DEFAULT '',
                 attachment_type TEXT NOT NULL DEFAULT '',
+                source_url TEXT NOT NULL DEFAULT '',
+                raw_source_text TEXT NOT NULL DEFAULT '',
+                detected_intent TEXT NOT NULL DEFAULT '',
+                urgency_label TEXT NOT NULL DEFAULT '',
+                estimated_value INTEGER NOT NULL DEFAULT 0,
+                contact_info TEXT NOT NULL DEFAULT '',
+                match_score INTEGER NOT NULL DEFAULT 0,
+                match_reasons TEXT NOT NULL DEFAULT '',
+                workflow_state TEXT NOT NULL DEFAULT 'Awaiting approval',
+                duplicate_probability INTEGER NOT NULL DEFAULT 0,
+                spam_probability INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(matched_client_id) REFERENCES clients(id)
@@ -184,16 +204,45 @@ def initialize_database(seed: bool = True) -> None:
                 summary TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS automation_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workflow TEXT NOT NULL,
+                status TEXT NOT NULL,
+                records_processed INTEGER NOT NULL DEFAULT 0,
+                detail TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
         _ensure_column(connection, "users", "created_at", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(connection, "clients", "contact_email", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(connection, "clients", "notes", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "services", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "target_customer", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "target_industries", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "service_categories", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "keywords", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "negative_keywords", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "preferred_lead_types", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "outreach_preferences", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "clients", "qualification_rules", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(connection, "clients", "created_at", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(connection, "leads", "owner", "TEXT NOT NULL DEFAULT 'Unassigned'")
         _ensure_column(connection, "leads", "attachment_name", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(connection, "leads", "attachment_path", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(connection, "leads", "attachment_type", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "source_url", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "raw_source_text", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "detected_intent", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "urgency_label", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "estimated_value", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(connection, "leads", "contact_info", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "match_score", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(connection, "leads", "match_reasons", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(connection, "leads", "workflow_state", "TEXT NOT NULL DEFAULT 'Awaiting approval'")
+        _ensure_column(connection, "leads", "duplicate_probability", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(connection, "leads", "spam_probability", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(connection, "leads", "updated_at", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(connection, "follow_up_tasks", "created_at", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(connection, "reviews", "created_at", "TEXT NOT NULL DEFAULT ''")
@@ -201,6 +250,7 @@ def initialize_database(seed: bool = True) -> None:
         _ensure_column(connection, "import_batches", "summary", "TEXT NOT NULL DEFAULT ''")
         if seed:
             _seed(connection)
+        _backfill_client_profiles(connection)
         connection.commit()
 
 
@@ -241,6 +291,7 @@ def _seed(connection: sqlite3.Connection) -> None:
 
     existing = connection.execute("SELECT COUNT(*) AS count FROM clients").fetchone()["count"]
     if existing:
+        _backfill_client_profiles(connection)
         return
 
     clients = [
@@ -253,6 +304,15 @@ def _seed(connection: sqlite3.Connection) -> None:
             12000,
             "ops+northline@nextrns.local",
             "Prefers residential repair and renovation leads with photos attached.",
+            "Carpentry, repair, renovation, custom woodwork",
+            "Property managers and homeowners",
+            "Property management, retail, residential",
+            "Carpenter, renovation, repair",
+            "carpenter, repair, renovation, contractor, quote",
+            "jobs, course, diy, training",
+            "Repair requests, renovation quotes, water damage",
+            "Professional, concise, request approval before contact",
+            "Service area match plus project value above $500.",
             "active",
         ),
         (
@@ -264,6 +324,15 @@ def _seed(connection: sqlite3.Connection) -> None:
             5000,
             "ops+realty@nextrns.local",
             "Best fit is buyer and seller intake in Scarborough and Toronto East.",
+            "Buyer representation, seller representation, valuation",
+            "Home buyers and sellers",
+            "Residential real estate",
+            "Real estate agent, realtor",
+            "buyer, seller, agent, realtor, showing, valuation",
+            "jobs, license, course, rent only",
+            "Buyer requests, seller consultations",
+            "Friendly, consultative, no pressure",
+            "Location must be Scarborough or Toronto East.",
             "active",
         ),
         (
@@ -275,6 +344,15 @@ def _seed(connection: sqlite3.Connection) -> None:
             25000,
             "ops+shieldpoint@nextrns.local",
             "Prioritize commercial and warehouse security requests.",
+            "Commercial security, warehouse patrol, event security",
+            "Facilities managers and operators",
+            "Logistics, warehousing, retail, events",
+            "Security company, patrol, guarding",
+            "security, patrol, guard, warehouse, coverage, overnight",
+            "jobs, license, training, course",
+            "Urgent coverage requests, recurring patrols",
+            "Professional and urgent-response oriented",
+            "Commercial intent and budget above $1,000.",
             "active",
         ),
         (
@@ -286,6 +364,15 @@ def _seed(connection: sqlite3.Connection) -> None:
             30000,
             "ops+oakgrain@nextrns.local",
             "High-value kitchen remodel and custom storage projects.",
+            "Custom cabinetry, kitchen renovation, storage",
+            "Homeowners and renovation contractors",
+            "Residential renovation",
+            "Custom cabinetry, kitchen remodel",
+            "cabinet, cabinetry, kitchen, remodel, custom storage",
+            "jobs, diy, course, training",
+            "Kitchen remodels, storage projects, custom quotes",
+            "Design-forward, helpful, approval before handoff",
+            "Estimated value should be above $1,500.",
             "active",
         ),
         (
@@ -297,16 +384,57 @@ def _seed(connection: sqlite3.Connection) -> None:
             6000,
             "ops+brightnest@nextrns.local",
             "Recurring commercial and property management cleaning leads.",
+            "Commercial cleaning, recurring office cleaning",
+            "Office managers and property managers",
+            "Commercial property, office operations",
+            "Cleaning service, janitorial",
+            "cleaning, janitorial, recurring, office, property",
+            "jobs, supplies, course, training",
+            "Recurring service requests, property management needs",
+            "Friendly and operations-focused",
+            "Recurring or commercial context preferred.",
             "active",
         ),
     ]
     connection.executemany(
         """
-        INSERT INTO clients (name, category, city, service_area, min_budget, max_budget, contact_email, notes, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO clients (
+            name, category, city, service_area, min_budget, max_budget, contact_email, notes,
+            services, target_customer, target_industries, service_categories, keywords,
+            negative_keywords, preferred_lead_types, outreach_preferences, qualification_rules, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         clients,
     )
+    _backfill_client_profiles(connection)
+
+
+def _backfill_client_profiles(connection) -> None:
+    profiles = [
+        ("Northline Carpentry", "Carpentry, repair, renovation, custom woodwork", "Property managers and homeowners", "Property management, retail, residential", "Carpenter, renovation, repair", "carpenter, repair, renovation, contractor, quote", "jobs, course, diy, training", "Repair requests, renovation quotes, water damage", "Professional, concise, request approval before contact", "Service area match plus project value above $500."),
+        ("Scarborough Realty Group", "Buyer representation, seller representation, valuation", "Home buyers and sellers", "Residential real estate", "Real estate agent, realtor", "buyer, seller, agent, realtor, showing, valuation", "jobs, license, course, rent only", "Buyer requests, seller consultations", "Friendly, consultative, no pressure", "Location must be Scarborough or Toronto East."),
+        ("ShieldPoint Security", "Commercial security, warehouse patrol, event security", "Facilities managers and operators", "Logistics, warehousing, retail, events", "Security company, patrol, guarding", "security, patrol, guard, warehouse, coverage, overnight", "jobs, license, training, course", "Urgent coverage requests, recurring patrols", "Professional and urgent-response oriented", "Commercial intent and budget above $1,000."),
+        ("Oak & Grain Cabinetry", "Custom cabinetry, kitchen renovation, storage", "Homeowners and renovation contractors", "Residential renovation", "Custom cabinetry, kitchen remodel", "cabinet, cabinetry, kitchen, remodel, custom storage", "jobs, diy, course, training", "Kitchen remodels, storage projects, custom quotes", "Design-forward, helpful, approval before handoff", "Estimated value should be above $1,500."),
+        ("BrightNest Cleaning", "Commercial cleaning, recurring office cleaning", "Office managers and property managers", "Commercial property, office operations", "Cleaning service, janitorial", "cleaning, janitorial, recurring, office, property", "jobs, supplies, course, training", "Recurring service requests, property management needs", "Friendly and operations-focused", "Recurring or commercial context preferred."),
+    ]
+    for profile in profiles:
+        connection.execute(
+            """
+            UPDATE clients
+            SET services = CASE WHEN services = '' THEN ? ELSE services END,
+                target_customer = CASE WHEN target_customer = '' THEN ? ELSE target_customer END,
+                target_industries = CASE WHEN target_industries = '' THEN ? ELSE target_industries END,
+                service_categories = CASE WHEN service_categories = '' THEN ? ELSE service_categories END,
+                keywords = CASE WHEN keywords = '' THEN ? ELSE keywords END,
+                negative_keywords = CASE WHEN negative_keywords = '' THEN ? ELSE negative_keywords END,
+                preferred_lead_types = CASE WHEN preferred_lead_types = '' THEN ? ELSE preferred_lead_types END,
+                outreach_preferences = CASE WHEN outreach_preferences = '' THEN ? ELSE outreach_preferences END,
+                qualification_rules = CASE WHEN qualification_rules = '' THEN ? ELSE qualification_rules END
+            WHERE name = ?
+            """,
+            (*profile[1:], profile[0]),
+        )
 
 
 class QueryResult:
@@ -403,19 +531,25 @@ def _seed_postgres(connection) -> None:
 
     existing = connection.execute("SELECT COUNT(*) AS count FROM clients").fetchone()["count"]
     if existing:
+        _backfill_client_profiles(connection)
         return
 
     clients = [
-        ("Northline Carpentry", "Carpenter", "Toronto", "Toronto, Scarborough, North York", 500, 12000, "ops+northline@nextrns.local", "Prefers residential repair and renovation leads with photos attached.", "active"),
-        ("Scarborough Realty Group", "Real estate agent", "Scarborough", "Scarborough, Toronto East", 0, 5000, "ops+realty@nextrns.local", "Best fit is buyer and seller intake in Scarborough and Toronto East.", "active"),
-        ("ShieldPoint Security", "Security company", "Mississauga", "GTA, Mississauga, Brampton", 1000, 25000, "ops+shieldpoint@nextrns.local", "Prioritize commercial and warehouse security requests.", "active"),
-        ("Oak & Grain Cabinetry", "Custom cabinetry", "Toronto", "Toronto, Etobicoke, Vaughan", 1500, 30000, "ops+oakgrain@nextrns.local", "High-value kitchen remodel and custom storage projects.", "active"),
-        ("BrightNest Cleaning", "Cleaning service", "Toronto", "Toronto, Scarborough, Markham", 250, 6000, "ops+brightnest@nextrns.local", "Recurring commercial and property management cleaning leads.", "active"),
+        ("Northline Carpentry", "Carpenter", "Toronto", "Toronto, Scarborough, North York", 500, 12000, "ops+northline@nextrns.local", "Prefers residential repair and renovation leads with photos attached.", "Carpentry, repair, renovation, custom woodwork", "Property managers and homeowners", "Property management, retail, residential", "Carpenter, renovation, repair", "carpenter, repair, renovation, contractor, quote", "jobs, course, diy, training", "Repair requests, renovation quotes, water damage", "Professional, concise, request approval before contact", "Service area match plus project value above $500.", "active"),
+        ("Scarborough Realty Group", "Real estate agent", "Scarborough", "Scarborough, Toronto East", 0, 5000, "ops+realty@nextrns.local", "Best fit is buyer and seller intake in Scarborough and Toronto East.", "Buyer representation, seller representation, valuation", "Home buyers and sellers", "Residential real estate", "Real estate agent, realtor", "buyer, seller, agent, realtor, showing, valuation", "jobs, license, course, rent only", "Buyer requests, seller consultations", "Friendly, consultative, no pressure", "Location must be Scarborough or Toronto East.", "active"),
+        ("ShieldPoint Security", "Security company", "Mississauga", "GTA, Mississauga, Brampton", 1000, 25000, "ops+shieldpoint@nextrns.local", "Prioritize commercial and warehouse security requests.", "Commercial security, warehouse patrol, event security", "Facilities managers and operators", "Logistics, warehousing, retail, events", "Security company, patrol, guarding", "security, patrol, guard, warehouse, coverage, overnight", "jobs, license, training, course", "Urgent coverage requests, recurring patrols", "Professional and urgent-response oriented", "Commercial intent and budget above $1,000.", "active"),
+        ("Oak & Grain Cabinetry", "Custom cabinetry", "Toronto", "Toronto, Etobicoke, Vaughan", 1500, 30000, "ops+oakgrain@nextrns.local", "High-value kitchen remodel and custom storage projects.", "Custom cabinetry, kitchen renovation, storage", "Homeowners and renovation contractors", "Residential renovation", "Custom cabinetry, kitchen remodel", "cabinet, cabinetry, kitchen, remodel, custom storage", "jobs, diy, course, training", "Kitchen remodels, storage projects, custom quotes", "Design-forward, helpful, approval before handoff", "Estimated value should be above $1,500.", "active"),
+        ("BrightNest Cleaning", "Cleaning service", "Toronto", "Toronto, Scarborough, Markham", 250, 6000, "ops+brightnest@nextrns.local", "Recurring commercial and property management cleaning leads.", "Commercial cleaning, recurring office cleaning", "Office managers and property managers", "Commercial property, office operations", "Cleaning service, janitorial", "cleaning, janitorial, recurring, office, property", "jobs, supplies, course, training", "Recurring service requests, property management needs", "Friendly and operations-focused", "Recurring or commercial context preferred.", "active"),
     ]
     connection.executemany(
         """
-        INSERT INTO clients (name, category, city, service_area, min_budget, max_budget, contact_email, notes, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO clients (
+            name, category, city, service_area, min_budget, max_budget, contact_email, notes,
+            services, target_customer, target_industries, service_categories, keywords,
+            negative_keywords, preferred_lead_types, outreach_preferences, qualification_rules, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         clients,
     )
+    _backfill_client_profiles(connection)

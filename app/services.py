@@ -4,9 +4,12 @@ import csv
 import hashlib
 import hmac
 import os
+import re
+import xml.etree.ElementTree as ET
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from io import StringIO
+from urllib.request import Request, urlopen
 from typing import Iterable
 
 import pandas as pd
@@ -18,6 +21,14 @@ from .notifications import notify_outreach_approved
 PIPELINE_STATUSES = ["New", "Qualified", "Contacted", "Follow-up", "Converted", "Not Fit"]
 ROLES = ["admin", "manager", "agent"]
 REQUIRED_LEAD_COLUMNS = {"source", "category", "city", "context", "budget"}
+DISCOVERY_WORKFLOWS = [
+    "Opportunity Discovery",
+    "Qualification",
+    "Client Matching",
+    "Duplicate Detection",
+    "Outreach Drafting",
+    "Follow-up Scheduling",
+]
 
 INTAKE_RECORDS = [
     {
@@ -160,6 +171,15 @@ def can_export(user: dict, kind: str) -> bool:
     return user["role"] in {"admin", "manager"} or (user["role"] == "agent" and kind == "tasks")
 
 
+def _csv_terms(value: str | None) -> list[str]:
+    return [item.strip().lower() for item in re.split(r"[,;\n]", value or "") if item.strip()]
+
+
+def _contains_any(text: str, terms: list[str]) -> bool:
+    lowered = text.lower()
+    return any(term and term in lowered for term in terms)
+
+
 def normalize_lead_payload(payload: dict) -> dict:
     source = str(payload.get("source") or "Manual intake").strip()
     category = str(payload.get("category") or "").strip()
@@ -180,10 +200,13 @@ def normalize_lead_payload(payload: dict) -> dict:
     normalized = {
         **payload,
         "source": source,
+        "source_url": str(payload.get("source_url") or payload.get("source_reference") or "").strip(),
+        "raw_source_text": str(payload.get("raw_source_text") or context).strip(),
         "category": category,
         "city": city,
         "context": context,
         "budget": budget,
+        "contact_info": str(payload.get("contact_info") or payload.get("contact") or "").strip(),
     }
     return normalized
 
@@ -224,26 +247,32 @@ def urgency_score(text: str) -> int:
     return min(score, 10)
 
 
-def client_fit_score(category: str, city: str, budget: int, client: dict | None) -> int:
+def client_fit_score(category: str, city: str, budget: int, client: dict | None, context: str = "") -> int:
     if not client:
         return 3
     score = 4
-    if client["category"].lower() == category.lower():
+    category_terms = [client["category"].lower(), *_csv_terms(client.get("service_categories")), *_csv_terms(client.get("services"))]
+    evidence = f"{category} {context}".lower()
+    if any(term and term in evidence for term in category_terms):
         score += 3
     if city.lower() in client["service_area"].lower() or city.lower() == client["city"].lower():
         score += 2
-    if client["min_budget"] <= budget <= client["max_budget"]:
+    if int(client["min_budget"]) <= budget <= int(client["max_budget"]):
         score += 1
+    if _contains_any(evidence, _csv_terms(client.get("keywords"))):
+        score += 1
+    if _contains_any(evidence, _csv_terms(client.get("negative_keywords"))):
+        score -= 3
     return min(score, 10)
 
 
-def find_client(category: str, city: str, budget: int) -> dict | None:
+def find_client(category: str, city: str, budget: int, context: str = "") -> dict | None:
     candidates = rows("SELECT * FROM clients WHERE status = 'active'")
-    ranked = sorted(candidates, key=lambda item: client_fit_score(category, city, budget, item), reverse=True)
+    ranked = sorted(candidates, key=lambda item: client_fit_score(category, city, budget, item, context), reverse=True)
     if not ranked:
         return None
     best = ranked[0]
-    return best if client_fit_score(category, city, budget, best) >= 5 else None
+    return best if client_fit_score(category, city, budget, best, context) >= 5 else None
 
 
 def build_outreach(category: str, city: str, tone: str = "professional") -> str:
@@ -251,23 +280,115 @@ def build_outreach(category: str, city: str, tone: str = "professional") -> str:
     return template.format(category_lower=category.lower(), city=city)
 
 
+def detect_intent(context: str) -> str:
+    lowered = context.lower()
+    if any(term in lowered for term in ["quote", "estimate", "proposal", "pricing"]):
+        return "Quote request"
+    if any(term in lowered for term in ["urgent", "asap", "today", "this week", "this month"]):
+        return "Urgent service need"
+    if any(term in lowered for term in ["looking for", "need", "requested", "seeking"]):
+        return "Active buying research"
+    return "Needs qualification"
+
+
+def urgency_label(score: int) -> str:
+    if score >= 8:
+        return "High"
+    if score >= 6:
+        return "Medium"
+    return "Low"
+
+
+def spam_probability(context: str) -> int:
+    lowered = context.lower()
+    spam_terms = ["free money", "crypto", "work from home", "guaranteed traffic", "buy followers"]
+    return min(95, sum(25 for term in spam_terms if term in lowered))
+
+
+def duplicate_probability(payload: dict) -> int:
+    return 92 if duplicate_lead(payload) else 0
+
+
+def match_reasons(category: str, city: str, budget: int, context: str, client: dict | None) -> list[str]:
+    if not client:
+        return ["No active client profile passed the minimum match threshold."]
+    reasons: list[str] = []
+    evidence = f"{category} {context}".lower()
+    if client["category"].lower() in evidence or _contains_any(evidence, _csv_terms(client.get("service_categories"))):
+        reasons.append(f"Service category aligns with {client['name']}.")
+    if city.lower() in client["service_area"].lower() or city.lower() == client["city"].lower():
+        reasons.append(f"{city} is inside the target geography.")
+    if int(client["min_budget"]) <= budget <= int(client["max_budget"]):
+        reasons.append(f"Estimated value ${budget:,} fits the qualification range.")
+    if _contains_any(evidence, _csv_terms(client.get("keywords"))):
+        reasons.append("Opportunity text contains preferred keywords.")
+    if not _contains_any(evidence, _csv_terms(client.get("negative_keywords"))):
+        reasons.append("No negative keywords were detected.")
+    return reasons or ["Client profile is the closest available fit."]
+
+
 def score_lead(category: str, city: str, budget: int, context: str) -> dict:
-    client = find_client(category, city, budget)
+    client = find_client(category, city, budget, context)
     urgency = urgency_score(context)
-    fit = client_fit_score(category, city, budget, client)
+    fit = client_fit_score(category, city, budget, client, context)
     priority = classify_priority(urgency, fit)
+    intent = detect_intent(context)
+    reasons = match_reasons(category, city, budget, context, client)
+    match_score = min(100, max(0, int((fit / 10) * 100)))
     explanation = (
-        f"{priority} priority: urgency {urgency}/10, client fit {fit}/10, "
-        f"category {category}, market {city}, budget ${budget:,}."
+        f"{priority} intent: {intent}; urgency {urgency}/10, client fit {fit}/10, "
+        f"match {match_score}%, category {category}, market {city}, estimated value ${budget:,}."
     )
-    return {"client": client, "urgency": urgency, "fit": fit, "priority": priority, "explanation": explanation}
+    return {
+        "client": client,
+        "urgency": urgency,
+        "fit": fit,
+        "priority": priority,
+        "intent": intent,
+        "urgency_label": urgency_label(urgency),
+        "match_score": match_score,
+        "match_reasons": reasons,
+        "spam_probability": spam_probability(context),
+        "explanation": explanation,
+    }
+
+
+def record_automation_run(workflow: str, status: str, records_processed: int = 0, detail: str = "") -> None:
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO automation_runs (workflow, status, records_processed, detail)
+            VALUES (?, ?, ?, ?)
+            """,
+            (workflow, status, records_processed, detail),
+        )
+        connection.commit()
+
+
+def automation_status() -> list[dict]:
+    statuses: list[dict] = []
+    for workflow in DISCOVERY_WORKFLOWS:
+        recent = row("SELECT * FROM automation_runs WHERE workflow = ? ORDER BY created_at DESC, id DESC LIMIT 1", (workflow,))
+        statuses.append(
+            {
+                "workflow": workflow,
+                "status": recent["status"] if recent else "Active",
+                "last_execution": recent["created_at"] if recent else "Ready",
+                "next_execution": "On next intake event",
+                "records_processed": recent["records_processed"] if recent else 0,
+                "detail": recent["detail"] if recent else "Waiting for the next authorized intake.",
+            }
+        )
+    return statuses
 
 
 def create_lead(payload: dict, actor: str = "System", detect_duplicate: bool = False) -> int:
     payload = normalize_lead_payload(payload)
+    dupe_probability = duplicate_probability(payload)
     if detect_duplicate:
         existing = duplicate_lead(payload)
         if existing:
+            record_automation_run("Duplicate Detection", "Duplicate", 1, f"Matched existing opportunity #{existing['id']}")
             raise ValueError(f"Duplicate lead matches existing lead #{existing['id']}")
     category = payload["category"]
     city = payload["city"]
@@ -277,16 +398,19 @@ def create_lead(payload: dict, actor: str = "System", detect_duplicate: bool = F
     client = scored["client"]
     status = payload.get("status") or ("Qualified" if scored["priority"] in {"High", "Medium"} else "New")
     owner = payload.get("owner") or "Unassigned"
-    next_action = payload.get("next_action") or "Review outreach draft"
+    workflow_state = "Ready for approval" if scored["match_score"] >= 50 else "Needs qualification"
+    next_action = payload.get("next_action") or ("Approve client match and outreach draft" if client else "Review unmatched opportunity")
     with connect() as connection:
         cursor = connection.execute(
             """
             INSERT INTO leads (
                 source, category, city, context, urgency, budget, client_fit, priority,
                 explanation, matched_client_id, outreach_status, outreach_draft, status,
-                notes, next_action, owner, attachment_name, attachment_path, attachment_type
+                notes, next_action, owner, attachment_name, attachment_path, attachment_type,
+                source_url, raw_source_text, detected_intent, urgency_label, estimated_value,
+                contact_info, match_score, match_reasons, workflow_state, duplicate_probability, spam_probability
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload.get("source", "Manual intake"),
@@ -308,6 +432,17 @@ def create_lead(payload: dict, actor: str = "System", detect_duplicate: bool = F
                 payload.get("attachment_name", ""),
                 payload.get("attachment_path", ""),
                 payload.get("attachment_type", ""),
+                payload.get("source_url", ""),
+                payload.get("raw_source_text", context),
+                scored["intent"],
+                scored["urgency_label"],
+                budget,
+                payload.get("contact_info", ""),
+                scored["match_score"],
+                "\n".join(scored["match_reasons"]),
+                workflow_state,
+                dupe_probability,
+                scored["spam_probability"],
             ),
         )
         lead_id = int(cursor.lastrowid)
@@ -322,7 +457,11 @@ def create_lead(payload: dict, actor: str = "System", detect_duplicate: bool = F
         )
         connection.execute(
             "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
-            (lead_id, actor, "created", f"Lead added from {payload.get('source', 'Manual intake')}.")
+            (lead_id, actor, "discovered", f"Opportunity received from {payload.get('source', 'Manual intake')}.")
+        )
+        connection.execute(
+            "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+            (lead_id, "NexusLead AI", "intent", f"Detected intent: {scored['intent']}; urgency: {scored['urgency_label']}.")
         )
         connection.execute(
             "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
@@ -331,8 +470,12 @@ def create_lead(payload: dict, actor: str = "System", detect_duplicate: bool = F
         if client:
             connection.execute(
                 "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
-                (lead_id, "NexusLead AI", "client_match", f"Recommended {client['name']} for {category} in {city}."),
+                (lead_id, "NexusLead AI", "client_match", f"Recommended {client['name']} at {scored['match_score']}% match. {' '.join(scored['match_reasons'])}"),
             )
+        connection.execute(
+            "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
+            (lead_id, "NexusLead AI", "outreach", "Contextual outreach draft generated and marked Ready for approval."),
+        )
         connection.execute(
             "INSERT INTO lead_events (lead_id, actor, event_type, note) VALUES (?, ?, ?, ?)",
             (lead_id, "NexusLead AI", "task", f"Created follow-up task due {due_date}."),
@@ -345,6 +488,15 @@ def create_lead(payload: dict, actor: str = "System", detect_duplicate: bool = F
             (actor, "lead.created", "lead", lead_id, f"Created {category} lead in {city}"),
         )
         connection.commit()
+    for workflow, detail in [
+        ("Opportunity Discovery", f"Received {category} opportunity from {payload.get('source', 'Manual intake')}"),
+        ("Qualification", scored["explanation"]),
+        ("Client Matching", f"{client['name'] if client else 'No client'}; match {scored['match_score']}%"),
+        ("Duplicate Detection", f"Duplicate probability {dupe_probability}%"),
+        ("Outreach Drafting", "Draft generated for human approval"),
+        ("Follow-up Scheduling", f"Task due {due_date}"),
+    ]:
+        record_automation_run(workflow, "Active", 1, detail)
     return lead_id
 
 
@@ -441,8 +593,12 @@ def create_client(payload: dict, actor: str = "System") -> int:
     with connect() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO clients (name, category, city, service_area, min_budget, max_budget, contact_email, notes, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO clients (
+                name, category, city, service_area, min_budget, max_budget, contact_email, notes,
+                services, target_customer, target_industries, service_categories, keywords,
+                negative_keywords, preferred_lead_types, outreach_preferences, qualification_rules, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload["name"].strip(),
@@ -453,6 +609,15 @@ def create_client(payload: dict, actor: str = "System") -> int:
                 int(payload.get("max_budget") or 0),
                 payload.get("contact_email", "").strip(),
                 payload.get("notes", "").strip(),
+                payload.get("services", payload.get("category", "")).strip(),
+                payload.get("target_customer", "").strip(),
+                payload.get("target_industries", "").strip(),
+                payload.get("service_categories", payload.get("category", "")).strip(),
+                payload.get("keywords", payload.get("category", "")).strip(),
+                payload.get("negative_keywords", "jobs, course, training, diy").strip(),
+                payload.get("preferred_lead_types", "").strip(),
+                payload.get("outreach_preferences", "Human-approved draft").strip(),
+                payload.get("qualification_rules", "").strip(),
                 payload.get("status", "active"),
             ),
         )
@@ -516,7 +681,7 @@ def approve_outreach(lead_id: int, actor: str) -> None:
     )
     with connect() as connection:
         connection.execute(
-            "UPDATE leads SET outreach_status = 'Approved', status = 'Contacted', next_action = 'Send through approved channel', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE leads SET outreach_status = 'Approved', status = 'Contacted', workflow_state = 'Approved for outreach', next_action = 'Send through approved channel', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (lead_id,),
         )
         connection.execute(
@@ -726,6 +891,14 @@ def get_dashboard_data(filters: dict[str, str | None], user: dict | None = None)
         ),
         "import_history": import_history(),
         "integrations": integration_status(),
+        "connected_source_count": len(
+            [
+                item
+                for item in integration_status()["connected"]
+                if item["status"] in {"Active", "Connected"}
+            ]
+        ),
+        "automations": automation_status(),
         "analytics": analytics(user),
         "pipeline_statuses": PIPELINE_STATUSES,
         "roles": ROLES,
@@ -743,10 +916,16 @@ def analytics(user: dict | None = None) -> dict:
     category_counts = Counter(item["category"] for item in lead_rows)
     city_counts = Counter(item["city"] for item in lead_rows)
     high_priority = [item for item in lead_rows if item["priority"] == "High"]
+    qualified = [item for item in lead_rows if item["status"] in {"Qualified", "Contacted", "Follow-up", "Converted"}]
+    matched = [item for item in lead_rows if item.get("matched_client_id")]
+    approval_ready = [item for item in lead_rows if item["outreach_status"] == "Needs approval"]
     converted = status_counts.get("Converted", 0)
     conversion_rate = round((converted / len(lead_rows)) * 100, 1) if lead_rows else 0
     return {
         "daily_lead_count": len(lead_rows),
+        "qualified_count": len(qualified),
+        "client_matches": len(matched),
+        "ready_for_outreach": len(approval_ready),
         "leads_by_category": dict(category_counts),
         "leads_by_city": dict(city_counts),
         "high_priority_leads": len(high_priority),
@@ -788,7 +967,10 @@ def export_csv(kind: str, user: dict | None = None) -> str:
             SELECT leads.id, leads.source, leads.category, leads.city, leads.context, leads.urgency,
                    leads.client_fit, leads.priority, leads.status, leads.owner, clients.name AS client_name,
                    leads.outreach_status, leads.outreach_draft, leads.next_action, leads.notes,
-                   leads.attachment_name, leads.created_at, leads.updated_at
+                   leads.source_url, leads.detected_intent, leads.urgency_label, leads.estimated_value,
+                   leads.contact_info, leads.match_score, leads.match_reasons, leads.workflow_state,
+                   leads.duplicate_probability, leads.spam_probability, leads.attachment_name,
+                   leads.created_at, leads.updated_at
             FROM leads
             LEFT JOIN clients ON clients.id = leads.matched_client_id
             ORDER BY leads.priority
@@ -806,7 +988,22 @@ def google_sheets_csv(user: dict | None = None) -> str:
 
 def google_sheets_template_csv() -> str:
     buffer = StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=["source", "category", "city", "context", "budget", "owner", "due_date", "notes"])
+    writer = csv.DictWriter(
+        buffer,
+        fieldnames=[
+            "source",
+            "category",
+            "city",
+            "context",
+            "budget",
+            "owner",
+            "due_date",
+            "notes",
+            "source_url",
+            "raw_source_text",
+            "contact_info",
+        ],
+    )
     writer.writeheader()
     writer.writerow(
         {
@@ -818,6 +1015,9 @@ def google_sheets_template_csv() -> str:
             "owner": "Unassigned",
             "due_date": (date.today() + timedelta(days=1)).isoformat(),
             "notes": "Approved intake source; review before outreach.",
+            "source_url": "https://example.com/authorized-source/reference",
+            "raw_source_text": "Warehouse manager needs urgent overnight security coverage this week.",
+            "contact_info": "Use only legitimately provided contact details.",
         }
     )
     return buffer.getvalue()
@@ -847,49 +1047,127 @@ def daily_report(user: dict | None = None) -> str:
 
 def integration_status() -> dict:
     webhook_token_configured = bool(os.getenv("NEXUSLEAD_WEBHOOK_TOKEN") or os.getenv("NEXUSLEAD_API_KEY"))
+    discovery_feed = bool(os.getenv("NEXUSLEAD_DISCOVERY_FEED_URL"))
+    connected = [
+        {
+            "name": "Manual opportunity intake",
+            "status": "Active",
+            "detail": "Dashboard intake writes opportunity evidence, qualification, matching, drafts, tasks, and activity history.",
+        },
+        {
+            "name": "CSV bulk import",
+            "status": "Active",
+            "detail": "Validated upload with duplicate detection and import history.",
+        },
+        {
+            "name": "Google Sheets CSV workflow",
+            "status": "Active",
+            "detail": "Sheets-ready template, upload path, and export are available without direct Google account connection.",
+        },
+        {
+            "name": "Session-authenticated API intake",
+            "status": "Active",
+            "detail": "POST /api/leads/intake accepts JSON for signed-in Admin, Manager, and Agent users.",
+        },
+    ]
+    available = [
+        {
+            "name": "n8n webhook endpoint",
+            "status": "Connected" if webhook_token_configured else "Available",
+            "detail": "POST /webhooks/n8n/leads accepts JSON with a Bearer token. Configure NEXUSLEAD_WEBHOOK_TOKEN for external workflows.",
+        },
+        {
+            "name": "Authorized RSS/Atom discovery",
+            "status": "Connected" if discovery_feed else "Available",
+            "detail": "POST /api/discovery/rss ingests permitted RSS/Atom feeds or customer-provided feed URLs for opportunity discovery.",
+        },
+    ]
+    if webhook_token_configured:
+        connected.append(available.pop(0))
+    if discovery_feed:
+        connected.append(available.pop(-1))
     return {
-        "connected": [
-            {
-                "name": "Manual lead intake",
-                "status": "Operational",
-                "detail": "Dashboard form writes qualified leads, client recommendations, outreach drafts, tasks, and activity history.",
-            },
-            {
-                "name": "CSV bulk import",
-                "status": "Operational",
-                "detail": "Validated upload with duplicate detection and import history.",
-            },
-            {
-                "name": "Google Sheets CSV workflow",
-                "status": "Operational",
-                "detail": "Sheets-ready template, upload path, and export are available without direct Google account connection.",
-            },
-            {
-                "name": "Session-authenticated API intake",
-                "status": "Operational",
-                "detail": "POST /api/leads/intake accepts JSON for signed-in Admin, Manager, and Agent users.",
-            },
-            {
-                "name": "n8n webhook endpoint",
-                "status": "Operational" if webhook_token_configured else "Configuration required",
-                "detail": "POST /webhooks/n8n/leads accepts JSON with a Bearer token. Configure NEXUSLEAD_WEBHOOK_TOKEN for external workflows.",
-            },
-        ],
-        "future": [
+        "connected": connected,
+        "available": available,
+        "not_configured": [
             {
                 "name": "Direct Google Sheets API sync",
-                "status": "Future integration",
+                "status": "Not configured",
                 "detail": "Use OAuth or a service account only after an approved Google Cloud setup exists.",
             },
             {
                 "name": "CRM imports",
-                "status": "Future integration",
+                "status": "Not configured",
                 "detail": "Connect approved CRMs through official APIs or scheduled CSV exports.",
             },
             {
                 "name": "Outbound sending",
-                "status": "Future integration",
+                "status": "Not configured",
                 "detail": "Drafts remain human-approved; sending should use approved email/CRM tools with audit logging.",
             },
         ],
     }
+
+
+def discover_from_rss(feed_url: str, actor: str = "RSS discovery") -> dict:
+    if not feed_url.startswith(("https://", "http://")):
+        raise ValueError("Feed URL must be HTTP or HTTPS")
+    request = Request(feed_url, headers={"User-Agent": "NexusLeadAI/1.2 authorized-feed-ingestion"})
+    with urlopen(request, timeout=10) as response:
+        xml_text = response.read(512_000).decode("utf-8", errors="replace")
+    root = ET.fromstring(xml_text)
+    items = root.findall(".//item") or root.findall(".//{http://www.w3.org/2005/Atom}entry")
+    created = 0
+    errors: list[str] = []
+    for item in items[:10]:
+        title = (item.findtext("title") or item.findtext("{http://www.w3.org/2005/Atom}title") or "").strip()
+        description = (
+            item.findtext("description")
+            or item.findtext("summary")
+            or item.findtext("{http://www.w3.org/2005/Atom}summary")
+            or title
+        ).strip()
+        link = (item.findtext("link") or "").strip()
+        payload = {
+            "source": "Authorized RSS/Atom feed",
+            "source_url": link or feed_url,
+            "category": infer_category(f"{title} {description}"),
+            "city": infer_city(f"{title} {description}"),
+            "context": f"{title}. {description}".strip(". "),
+            "budget": infer_value(f"{title} {description}"),
+            "raw_source_text": description,
+        }
+        try:
+            create_lead(payload, actor=actor, detect_duplicate=True)
+            created += 1
+        except ValueError as exc:
+            errors.append(str(exc))
+    record_automation_run("Opportunity Discovery", "Active", created, f"RSS feed processed: {feed_url}")
+    return {"created": created, "errors": errors, "processed": len(items[:10])}
+
+
+def infer_category(text: str) -> str:
+    lowered = text.lower()
+    if any(term in lowered for term in ["security", "guard", "patrol"]):
+        return "Security company"
+    if any(term in lowered for term in ["cleaning", "janitorial"]):
+        return "Cleaning service"
+    if any(term in lowered for term in ["cabinet", "kitchen"]):
+        return "Custom cabinetry"
+    if any(term in lowered for term in ["real estate", "realtor", "buyer", "seller"]):
+        return "Real estate agent"
+    if any(term in lowered for term in ["renovation", "repair", "carpenter", "contractor"]):
+        return "Carpenter"
+    return "General service"
+
+
+def infer_city(text: str) -> str:
+    for city in ["Toronto", "Scarborough", "Mississauga", "Brampton", "Markham", "Etobicoke", "Vaughan"]:
+        if city.lower() in text.lower():
+            return city
+    return "Toronto"
+
+
+def infer_value(text: str) -> int:
+    amounts = [int(item.replace(",", "")) for item in re.findall(r"\$?\b([1-9]\d{2,5}(?:,\d{3})?)\b", text)]
+    return max(amounts) if amounts else 1000

@@ -14,7 +14,7 @@
     h2 { margin: 0 0 12px; font-size: 19px; }
     p { color: #667085; line-height: 1.55; }
     a.button { border: 1px solid #b8cdfd; border-radius: 7px; padding: 10px 12px; background: white; color: #1d4ed8; text-decoration: none; font-weight: 800; white-space: nowrap; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
     .panel, .item { background: white; border: 1px solid #e9edf3; border-radius: 8px; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
     .panel { padding: 18px; }
     .item { padding: 14px; margin-top: 10px; }
@@ -38,7 +38,7 @@
 
     <section class="grid">
       <div class="panel">
-        <h2>Operational now</h2>
+        <h2>Connected</h2>
         {% for item in integrations.connected %}
         <div class="item">
           <strong>{{ item.name }}</strong>
@@ -49,8 +49,21 @@
       </div>
 
       <div class="panel">
-        <h2>Future integrations</h2>
-        {% for item in integrations.future %}
+        <h2>Available</h2>
+        {% for item in integrations.available %}
+        <div class="item">
+          <strong>{{ item.name }}</strong>
+          <span class="badge">{{ item.status }}</span>
+          <p>{{ item.detail }}</p>
+        </div>
+        {% else %}
+        <div class="item"><strong>No available connectors waiting.</strong><p>Configured intake paths move into Connected.</p></div>
+        {% endfor %}
+      </div>
+
+      <div class="panel">
+        <h2>Not configured</h2>
+        {% for item in integrations.not_configured %}
         <div class="item">
           <strong>{{ item.name }}</strong>
           <span class="badge">{{ item.status }}</span>
@@ -62,7 +75,7 @@
 
     <section class="panel" style="margin-top: 18px;">
       <h2>Available endpoints</h2>
-      <p><code>POST /api/leads/intake</code> accepts JSON for signed-in users. <code>POST /webhooks/n8n/leads</code> accepts JSON with a Bearer token. <code>GET /templates/google-sheets-leads.csv</code> provides a Sheets-ready intake template.</p>
+      <p><code>POST /api/leads/intake</code> accepts JSON for signed-in users. <code>POST /api/discovery/opportunities</code> and <code>POST /webhooks/n8n/leads</code> accept token-protected opportunity JSON. <code>POST /api/discovery/rss</code> ingests permitted RSS/Atom feeds for manager/admin users. <code>GET /templates/google-sheets-leads.csv</code> provides a Sheets-ready intake template.</p>
     </section>
   </main>
 </body>

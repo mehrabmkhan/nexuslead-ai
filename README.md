@@ -2,9 +2,9 @@
 
 Internal B2B Lead Operations Platform
 
-NexusLead AI is an AWS-hosted internal SaaS application designed and developed for NextRNS-style BPO business development workflows. It gives admins, managers, and lead operations agents one shared workspace for authorized lead intake, qualification, client matching, assignment, human-reviewed outreach drafts, follow-up scheduling, conversion tracking, reporting, exports, and audit history.
+NexusLead AI is an AWS-hosted internal SaaS application designed and developed for NextRNS-style BPO business development workflows. It gives admins, managers, and lead operations agents a Discovery-first workspace for authorized opportunity intake, intent extraction, qualification, client matching, assignment, human-reviewed outreach drafts, follow-up scheduling, conversion tracking, reporting, exports, and audit history.
 
-The public environment uses realistic fictional business data so reviewers can exercise the workflows without exposing real customer records. The workflows are functional: leads are persisted in PostgreSQL, scored, matched, assigned, routed through approval, placed into follow-up queues, and included in database-backed analytics.
+The public environment uses realistic fictional business data so reviewers can exercise the workflows without exposing real customer records. The workflows are functional: opportunities are persisted in PostgreSQL, classified, scored, matched against client target profiles, assigned, routed through approval, placed into follow-up queues, and included in database-backed analytics.
 
 ## Live Deployments
 
@@ -85,7 +85,7 @@ AWS architecture diagram: [diagrams/aws-architecture.mmd](diagrams/aws-architect
 
 ![NexusLead AI login screen](screenshots/login.png)
 
-### Operations Dashboard
+### Discovery Workspace
 
 ![NexusLead AI operations dashboard](screenshots/dashboard.png)
 
@@ -96,25 +96,26 @@ AWS architecture diagram: [diagrams/aws-architecture.mmd](diagrams/aws-architect
 ## Feature Walkthrough
 
 1. Sign in with one of the review roles.
-2. Review KPI cards for active leads, high-priority leads, follow-ups, conversion, and estimated opportunity value.
-3. Use search and filters to narrow the lead pipeline by client, city, business type, priority, and status.
-4. Create a lead through the lead intake form.
-5. Review the deterministic score, matched client, priority badge, and outreach draft.
-6. Managers assign ownership and approve outreach drafts before any external use.
-7. Agents schedule follow-ups, update statuses, add notes, and move leads through the conversion pipeline.
-8. Review the activity timeline for intake, qualification, client recommendation, assignment, approval, task, and status events.
-9. Use CSV import with validation, duplicate detection, and import history.
-10. Export leads, tasks, Google Sheets-ready CSV, a Sheets intake template, or the daily report.
+2. Review Discovery Engine status, connected sources, qualified opportunities, client matches, and ready-for-approval outreach.
+3. Process an authorized opportunity from manual intake, CSV, Google Sheets CSV, authenticated API, n8n webhook, or permitted RSS/Atom feed.
+4. Review extracted intent, urgency, estimated value, duplicate probability, spam probability, match score, and match reasons.
+5. Managers approve or override routing through assignment and outreach approval.
+6. Agents work the follow-up queue, schedule next touchpoints, update notes, and move opportunities through the conversion pipeline.
+7. Review the automation activity timeline for discovery, qualification, client comparison, duplicate detection, outreach drafting, follow-up scheduling, assignment, approval, task, and status events.
+8. Use CSV import with validation, duplicate detection, and import history.
+9. Export opportunities, tasks, Google Sheets-ready CSV, a Sheets intake template, or the daily report.
 
 ## Product Scope
 
 NexusLead AI is designed for approved operational inputs and human-reviewed workflows:
 
-- Manual lead entry
+- Manual opportunity entry
 - CSV upload
 - Google Sheets-ready CSV export/import using the template at `/templates/google-sheets-leads.csv`
 - Session-authenticated JSON intake at `/api/leads/intake`
 - Token-protected n8n webhook intake at `/webhooks/n8n/leads`
+- Token-protected discovery intake at `/api/discovery/opportunities`
+- Manager/admin RSS or Atom feed ingestion at `/api/discovery/rss` for feeds that permit programmatic reuse
 - Approved CRM imports
 - Public business directories where terms allow access
 - Official APIs where available
@@ -126,17 +127,18 @@ Outreach remains human-reviewed before sending. The app does not implement auto-
 
 - Admin, Manager, and Agent roles
 - Role-based dashboard behavior
-- Multi-tenant client profiles with business type, service area, city, budget range, contact email, and notes
-- Lead intake through form, session-authenticated API, webhook, CSV upload, and Google Sheets-ready CSV
+- Client target profiles with services, target customer, target industries, service categories, geographies, keywords, negative keywords, minimum opportunity value, outreach preferences, and qualification rules
+- Opportunity intake through form, session-authenticated API, token-protected discovery API, webhook, CSV upload, Google Sheets-ready CSV, and permitted RSS/Atom feeds
 - CSV bulk import validation, duplicate detection, and import history
-- Deterministic lead classification by service category, location, urgency, budget, and client fit
-- Automatic client recommendation and matching
-- Automatic follow-up task generation for qualified leads
+- Deterministic opportunity classification by service category, location, urgency, estimated value, duplicate probability, spam probability, and client fit
+- Automatic client recommendation with match percentage and match reasons
+- Automatic follow-up task generation for qualified opportunities
 - Outreach draft generation with human approval status
 - Manager approval queue
 - Pipeline statuses: New, Qualified, Contacted, Follow-up, Converted, Not Fit
 - Follow-up task queue with due date scheduling
-- Lead activity timeline and audit logging
+- Opportunity activity timeline and audit logging
+- Automation status records for discovery, qualification, client matching, duplicate detection, outreach drafting, and follow-up scheduling
 - Database-backed analytics and daily reporting
 - File attachment metadata for leads
 - Review response drafting workflow
@@ -152,30 +154,38 @@ Outreach remains human-reviewed before sending. The app does not implement auto-
 
 ```mermaid
 flowchart LR
-    Source[Authorized lead source] --> Intake[Form / API / webhook / CSV / Sheets CSV]
-    Intake --> Qualify[Qualification and priority scoring]
-    Qualify --> Match[Client recommendation]
-    Match --> Assign[Manager assignment]
-    Assign --> Draft[Outreach draft]
-    Draft --> Approval[Manager approval queue]
-    Approval --> Follow[Agent follow-up task]
-    Follow --> Pipeline[Conversion pipeline]
-    Pipeline --> Reports[Analytics, exports, daily report]
-    Pipeline --> History[Lead timeline and audit log]
+    Source[Authorized data source] --> Discover[Discover / ingest opportunity]
+    Discover --> Intent[Extract intent]
+    Intent --> Qualify[Classify and qualify]
+    Qualify --> Enrich[Enrich available data]
+    Enrich --> Match[Match to client target profile]
+    Match --> Score[Calculate match score and reasons]
+    Score --> Draft[Generate outreach draft]
+    Draft --> Assign[Assign employee]
+    Assign --> Approval[Human approval]
+    Approval --> Follow[Follow-up]
+    Follow --> Conversion[Conversion tracking]
+    Conversion --> Reports[Analytics, exports, daily report]
+    Conversion --> History[Activity timeline and audit log]
 ```
 
 ## Current Integration Status
 
-Operational now:
+Connected:
 
-- Manual lead intake from the dashboard
+- Manual opportunity intake from the Discovery workspace
 - CSV bulk import with required-column validation, duplicate detection, and import history
 - Google Sheets-compatible CSV template and exports
 - Session-authenticated JSON intake at `/api/leads/intake`
-- Token-protected n8n webhook intake at `/webhooks/n8n/leads`
 - CSV exports for leads, Google Sheets, and tasks
 
-Future integrations are documented as future work only:
+Available when configured:
+
+- Token-protected n8n webhook intake at `/webhooks/n8n/leads`
+- Token-protected discovery intake at `/api/discovery/opportunities`
+- RSS/Atom opportunity discovery at `/api/discovery/rss` for feeds that permit reuse
+
+Not configured:
 
 - Direct Google Sheets API sync
 - CRM imports through approved vendor APIs
@@ -186,17 +196,19 @@ Future integrations are documented as future work only:
 
 ```mermaid
 flowchart LR
-    U[Admin / Manager / Agent] --> R[Render Free Web Service]
-    R --> F[FastAPI App]
-    F --> T[Jinja2 SaaS UI]
-    F --> A[Role-Aware API Routes]
-    F --> S[Services Layer]
-    S --> DB[(SQLite MVP Database)]
-    S --> E[CSV / Daily Report Exports]
-    S --> N[Console Email Provider]
-    S --> J[Local Background Job Registry]
-    F --> H[/health and /metrics]
-    G[GitHub main branch] --> R
+    U[Admin / Manager / Agent] --> HTTPS[Caddy HTTPS]
+    HTTPS --> APP[FastAPI + Jinja2 Discovery Workspace]
+    APP --> AUTH[Role-aware sessions and APIs]
+    APP --> DISC[Discovery / intake connectors]
+    DISC --> SCORE[Intent, qualification, duplicate and spam checks]
+    SCORE --> MATCH[Client target profile matching]
+    MATCH --> OPS[Approval, assignment, follow-up, conversion]
+    OPS --> DB[(PostgreSQL production / SQLite local)]
+    OPS --> EXPORTS[CSV, Sheets CSV, daily reports]
+    OPS --> AUDIT[Activity timeline and audit log]
+    APP --> HEALTH[/health, /metrics, /docs]
+    G[GitHub Actions] --> ECR[Amazon ECR]
+    ECR --> APP
 ```
 
 ## Deployment Architecture
@@ -230,6 +242,7 @@ Environment variables:
 | `LOG_LEVEL` | Runtime logging level for CloudWatch |
 | `NEXUSLEAD_WEBHOOK_TOKEN` | Shared token for n8n webhook lead intake |
 | `NEXUSLEAD_API_KEY` | Optional fallback token for webhook intake |
+| `NEXUSLEAD_DISCOVERY_FEED_URL` | Optional configured RSS/Atom discovery feed marker |
 
 ## Local Setup
 

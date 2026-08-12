@@ -66,8 +66,8 @@ def test_dashboard_endpoint(admin_client):
     response = admin_client.get("/dashboard")
 
     assert response.status_code == 200
-    assert "Lead Operations Workspace" in response.text
-    assert "User management" in response.text
+    assert "Discovery engine" in response.text
+    assert "Create target profile" in response.text
 
 
 def test_manager_can_approve_and_assign(manager_client):
@@ -123,6 +123,8 @@ def test_openapi_includes_core_paths(client):
     assert "/api/tasks" in paths
     assert "/api/leads/intake" in paths
     assert "/webhooks/n8n/leads" in paths
+    assert "/api/discovery/opportunities" in paths
+    assert "/api/discovery/rss" in paths
 
 
 def test_api_lead_intake_requires_login(client):
@@ -165,6 +167,22 @@ def test_webhook_lead_intake_requires_token(client):
     assert accepted.json()["status"] == "accepted"
 
 
+def test_discovery_opportunity_endpoint_uses_token(client):
+    payload = {
+        "category": "Custom cabinetry",
+        "city": "Etobicoke",
+        "context": "Homeowner needs a kitchen cabinet quote this month",
+        "budget": 14000,
+        "source_url": "https://example.com/authorized-feed/item-1",
+    }
+    response = client.post("/api/discovery/opportunities", json=payload, headers={"X-NexusLead-Token": "local-webhook-token"})
+
+    assert response.status_code == 200
+    opportunity = response.json()["opportunity"]
+    assert opportunity["detected_intent"] == "Quote request"
+    assert opportunity["match_score"] >= 50
+
+
 def test_integrations_page_and_import_history(admin_client):
     page = admin_client.get("/integrations")
     api = admin_client.get("/api/integrations")
@@ -172,7 +190,9 @@ def test_integrations_page_and_import_history(admin_client):
     template = admin_client.get("/templates/google-sheets-leads.csv")
 
     assert page.status_code == 200
-    assert "Operational now" in page.text
+    assert "Connected" in page.text
+    assert "Available" in page.text
+    assert "Not configured" in page.text
     assert api.json()["connected"]
     assert imports.status_code == 200
     assert "source,category,city,context,budget" in template.text

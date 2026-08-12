@@ -44,6 +44,7 @@ from .services import (
     seed_operational_records,
     seed_reviews,
     create_intake_lead,
+    discover_from_rss,
     update_lead_status,
 )
 
@@ -333,6 +334,23 @@ def n8n_lead_webhook(payload: dict = Body(...), actor: str = Depends(webhook_act
     return {"status": "accepted", "lead": lead}
 
 
+@app.post("/api/discovery/opportunities", tags=["leads"])
+def api_discovery_opportunity(payload: dict = Body(...), actor: str = Depends(webhook_actor)) -> dict:
+    lead = create_intake_lead({**payload, "source": payload.get("source") or "Authorized discovery API"}, actor=actor)
+    return {"status": "accepted", "opportunity": lead}
+
+
+@app.post("/api/discovery/rss", tags=["integrations"])
+def api_discovery_rss(payload: dict = Body(...), user: dict = Depends(reviewer_user)) -> dict:
+    feed_url = str(payload.get("feed_url") or "").strip()
+    if not feed_url:
+        raise HTTPException(status_code=400, detail="feed_url is required")
+    try:
+        return discover_from_rss(feed_url, actor=user["name"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/leads/{lead_id}/status", tags=["leads"])
 def change_status(
     lead_id: int,
@@ -388,6 +406,15 @@ def add_client(
     max_budget: int = Form(0),
     contact_email: str = Form(""),
     notes: str = Form(""),
+    services: str = Form(""),
+    target_customer: str = Form(""),
+    target_industries: str = Form(""),
+    service_categories: str = Form(""),
+    keywords: str = Form(""),
+    negative_keywords: str = Form("jobs, course, training, diy"),
+    preferred_lead_types: str = Form(""),
+    outreach_preferences: str = Form("Human-approved draft"),
+    qualification_rules: str = Form(""),
     user: dict = Depends(admin_user),
 ) -> RedirectResponse:
     create_client(
@@ -400,6 +427,15 @@ def add_client(
             "max_budget": max_budget,
             "contact_email": contact_email,
             "notes": notes,
+            "services": services,
+            "target_customer": target_customer,
+            "target_industries": target_industries,
+            "service_categories": service_categories,
+            "keywords": keywords,
+            "negative_keywords": negative_keywords,
+            "preferred_lead_types": preferred_lead_types,
+            "outreach_preferences": outreach_preferences,
+            "qualification_rules": qualification_rules,
             "status": "active",
         },
         actor=user["name"],

@@ -3,6 +3,7 @@ from app.services import (
     analytics,
     attach_file_metadata,
     build_outreach,
+    automation_status,
     classify_priority,
     create_lead,
     duplicate_lead,
@@ -44,6 +45,7 @@ def test_client_matching_uses_category_and_service_area():
     assert client is not None
     assert client["category"] == "Carpenter"
     assert "contact_email" in client
+    assert "negative_keywords" in client
 
 
 def test_outreach_is_draft_language_not_auto_send():
@@ -66,9 +68,13 @@ def test_create_lead_writes_audit_log():
         actor="Test User",
     )
     audit = row("SELECT * FROM audit_logs WHERE entity_type = 'lead' AND entity_id = ?", (lead_id,))
+    lead = row("SELECT * FROM leads WHERE id = ?", (lead_id,))
 
     assert audit is not None
     assert audit["action"] == "lead.created"
+    assert lead["detected_intent"] == "Urgent service need"
+    assert lead["match_score"] >= 50
+    assert "Service category" in lead["match_reasons"] or "target geography" in lead["match_reasons"]
 
 
 def test_duplicate_detection_and_import_history():
@@ -138,8 +144,11 @@ def test_follow_up_task_can_be_rescheduled():
 def test_analytics_and_exports():
     data = analytics()
     csv_text = export_csv("leads")
+    workflows = automation_status()
 
     assert data["daily_lead_count"] >= 5
     assert data["high_priority_leads"] >= 1
+    assert data["client_matches"] >= 1
     assert "outreach_status" in csv_text
     assert rows("SELECT * FROM lead_events")
+    assert any(item["workflow"] == "Opportunity Discovery" for item in workflows)
